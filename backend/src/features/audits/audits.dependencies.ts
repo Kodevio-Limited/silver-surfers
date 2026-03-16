@@ -1,0 +1,106 @@
+import type { Model } from 'mongoose';
+
+import type { QueueReportStorage } from '../../infrastructure/queues/job-queue.ts';
+import AnalysisRecord from '../../models/analysis-record.model.ts';
+import QuickScan from '../../models/quick-scan.model.ts';
+import Subscription from '../../models/subscription.model.ts';
+import User from '../../models/user.model.ts';
+import type { AuditScorecard } from './audit-scorecard.ts';
+
+export interface SubscriptionDocument {
+  _id?: string;
+  user?: string;
+  status?: string;
+  planId?: string;
+  usage?: {
+    scansThisMonth?: number;
+  };
+  limits?: {
+    scansPerMonth?: number;
+  };
+}
+
+interface UserDocument {
+  _id?: string;
+  oneTimeScans?: number;
+}
+
+export interface AnalysisRecordDocument {
+  _id?: string;
+  user?: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  url?: string;
+  taskId?: string;
+  planId?: string | null;
+  device?: string | null;
+  score?: number | null;
+  scoreCard?: AuditScorecard;
+  status?: string;
+  emailStatus?: string;
+  emailAccepted?: string[];
+  emailRejected?: string[];
+  attachmentCount?: number;
+  emailError?: string;
+  reportDirectory?: string;
+  reportStorage?: QueueReportStorage;
+  reportFiles?: Array<{
+    id?: string;
+    filename?: string;
+    relativePath?: string;
+    storageKey?: string;
+    providerUrl?: string;
+    size?: number;
+    sizeMB?: string;
+    contentType?: string;
+  }>;
+  failureReason?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+  save(): Promise<unknown>;
+}
+
+export interface QuickScanDocument {
+  _id?: string;
+  url?: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  status?: string;
+  scanDate?: Date;
+  reportGenerated?: boolean;
+  reportPath?: string | null;
+  reportStorage?: QueueReportStorage;
+  reportFiles?: Array<{
+    id?: string;
+    filename?: string;
+    relativePath?: string;
+    storageKey?: string;
+    providerUrl?: string;
+    size?: number;
+    sizeMB?: string;
+    contentType?: string;
+  }>;
+}
+
+export interface SubscriptionModel extends Model<SubscriptionDocument> {}
+export interface UserModel extends Model<UserDocument> {}
+export interface AnalysisRecordModel extends Model<AnalysisRecordDocument> {}
+export interface QuickScanModel extends Model<QuickScanDocument> {}
+
+export async function getSubscriptionModel(): Promise<SubscriptionModel> {
+  return Subscription as unknown as SubscriptionModel;
+}
+
+export async function getUserModel(): Promise<UserModel> {
+  return User as unknown as UserModel;
+}
+
+export async function getAnalysisRecordModel(): Promise<AnalysisRecordModel> {
+  return AnalysisRecord as unknown as AnalysisRecordModel;
+}
+
+export async function getQuickScanModel(): Promise<QuickScanModel> {
+  return QuickScan as unknown as QuickScanModel;
+}

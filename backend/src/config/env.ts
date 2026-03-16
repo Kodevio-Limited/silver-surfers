@@ -1,0 +1,138 @@
+import dotenv from 'dotenv';
+import type { QueueBackend } from '../infrastructure/queues/queue-factory.ts';
+import { backendRoot, resolveBackendPath } from './paths.ts';
+
+dotenv.config({ path: resolveBackendPath('.env'), quiet: true });
+
+type Environment = 'development' | 'test' | 'production';
+
+function parseNumber(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+function parseCsv(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function resolveNodeEnv(value: string | undefined): Environment {
+  if (value === 'production' || value === 'test') {
+    return value;
+  }
+
+  return 'development';
+}
+
+function resolveQueueBackend(value: string | undefined, redisUrl: string | undefined): QueueBackend {
+  if (value === 'bullmq' || value === 'persistent') {
+    return value;
+  }
+
+  return redisUrl ? 'bullmq' : 'persistent';
+}
+
+export interface AppEnv {
+  backendRoot: string;
+  nodeEnv: Environment;
+  isProduction: boolean;
+  isDevelopment: boolean;
+  port: number;
+  scannerPort: number;
+  mongoUri?: string;
+  jwtSecret: string;
+  jwtExpiresIn: string;
+  frontendUrl: string;
+  additionalAllowedOrigins: string[];
+  processingTimeoutMs: number;
+  queuedTimeoutMs: number;
+  watchdogIntervalMs: number;
+  scannerServiceUrl: string;
+  chromePath?: string;
+  requestLogEnabled: boolean;
+  queueBackend: QueueBackend;
+  redisUrl?: string;
+  bullMqPrefix: string;
+  scannerMaxConcurrentAudits: number;
+  scannerMaxQueuedAudits: number;
+  queueCleanupIntervalMs: number;
+  queueMaintenanceIntervalMs: number;
+  queueLeaseDurationMs: number;
+  queueHeartbeatIntervalMs: number;
+  cacheCleanupIntervalMs: number;
+  tempReportTtlMs: number;
+  reportDirectoryTtlMs: number;
+  quickScanReportTtlMs: number;
+}
+
+export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
+  const nodeEnv = resolveNodeEnv(source.NODE_ENV);
+  const port = parseNumber(source.PORT, 8000);
+  const scannerPort = parseNumber(source.SCANNER_PORT, 8001);
+  const redisUrl = source.REDIS_URL?.trim() || source.QUEUE_REDIS_URL?.trim() || undefined;
+
+  return {
+    backendRoot,
+    nodeEnv,
+    isProduction: nodeEnv === 'production',
+    isDevelopment: nodeEnv === 'development',
+    port,
+    scannerPort,
+    mongoUri: source.MONGODB_URI?.trim() || undefined,
+    jwtSecret: source.JWT_SECRET?.trim() || 'dev_secret_change_me',
+    jwtExpiresIn: source.JWT_EXPIRES_IN?.trim() || '7d',
+    frontendUrl: source.FRONTEND_URL?.trim() || 'http://localhost:3000',
+    additionalAllowedOrigins: parseCsv(source.ADDITIONAL_ALLOWED_ORIGINS),
+    processingTimeoutMs: parseNumber(source.PROCESSING_TIMEOUT_MS, 4 * 60 * 60 * 1000),
+    queuedTimeoutMs: parseNumber(source.QUEUED_TIMEOUT_MS, 60 * 60 * 1000),
+    watchdogIntervalMs: parseNumber(source.WATCHDOG_INTERVAL_MS, 5 * 60 * 1000),
+    scannerServiceUrl:
+      source.SCANNER_SERVICE_URL?.trim()
+      || source.PYTHON_SCANNER_URL?.trim()
+      || `http://localhost:${scannerPort}`,
+    chromePath: source.CHROME_PATH?.trim() || source.CHROMIUM_PATH?.trim() || undefined,
+    requestLogEnabled: parseBoolean(source.REQUEST_LOG_ENABLED, true),
+    queueBackend: resolveQueueBackend(source.QUEUE_BACKEND?.trim().toLowerCase(), redisUrl),
+    redisUrl,
+    bullMqPrefix: source.BULLMQ_PREFIX?.trim() || 'silver-surfers',
+    scannerMaxConcurrentAudits: parseNumber(source.SCANNER_MAX_CONCURRENT_AUDITS, 1),
+    scannerMaxQueuedAudits: parseNumber(source.SCANNER_MAX_QUEUED_AUDITS, 8),
+    queueCleanupIntervalMs: parseNumber(source.QUEUE_CLEANUP_INTERVAL_MS, 5 * 60 * 1000),
+    queueMaintenanceIntervalMs: parseNumber(source.QUEUE_MAINTENANCE_INTERVAL_MS, 30 * 1000),
+    queueLeaseDurationMs: parseNumber(source.QUEUE_LEASE_DURATION_MS, 60 * 1000),
+    queueHeartbeatIntervalMs: parseNumber(source.QUEUE_HEARTBEAT_INTERVAL_MS, 15 * 1000),
+    cacheCleanupIntervalMs: parseNumber(source.CACHE_CLEANUP_INTERVAL_MS, 15 * 60 * 1000),
+    tempReportTtlMs: parseNumber(source.TEMP_REPORT_TTL_MS, 6 * 60 * 60 * 1000),
+    reportDirectoryTtlMs: parseNumber(source.REPORT_DIRECTORY_TTL_MS, 24 * 60 * 60 * 1000),
+    quickScanReportTtlMs: parseNumber(source.QUICK_SCAN_REPORT_TTL_MS, 30 * 60 * 1000),
+  };
+}
+
+export const env = readEnv();

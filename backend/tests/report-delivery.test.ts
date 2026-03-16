@@ -1,0 +1,81 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+
+import { buildAuditReportEmailBody, collectAttachmentsRecursive } from '../src/features/audits/report-delivery.ts';
+
+test('collectAttachmentsRecursive only returns PDFs and respects device filters', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'report-delivery-'));
+
+  try {
+    await fs.mkdir(path.join(tempDir, 'nested'));
+    await fs.writeFile(path.join(tempDir, 'combined-desktop-report.pdf'), 'desktop');
+    await fs.writeFile(path.join(tempDir, 'combined-mobile-report.pdf'), 'mobile');
+    await fs.writeFile(path.join(tempDir, 'nested', 'summary-tablet.pdf'), 'tablet');
+    await fs.writeFile(path.join(tempDir, 'notes.txt'), 'ignore me');
+
+    const desktopFiles = await collectAttachmentsRecursive(tempDir, 'desktop');
+    const allFiles = await collectAttachmentsRecursive(tempDir);
+
+    assert.deepEqual(
+      desktopFiles.map((file) => file.filename).sort(),
+      ['combined-desktop-report.pdf'],
+    );
+    assert.deepEqual(
+      allFiles.map((file) => file.filename).sort(),
+      ['combined-desktop-report.pdf', 'combined-mobile-report.pdf', path.join('nested', 'summary-tablet.pdf')].sort(),
+    );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('buildAuditReportEmailBody formats quick scan cloud links with score and expiry warning', () => {
+  const previousUrlMode = process.env.AWS_S3_URL_MODE;
+  process.env.AWS_S3_URL_MODE = 'signed';
+
+  try {
+    const body = buildAuditReportEmailBody({
+      baseText: 'Base quick scan text.',
+      uploadedFiles: [
+        {
+          filename: 'reports-lite/example.pdf',
+          downloadUrl: 'https://downloads.example.com/example.pdf',
+        },
+      ],
+      storage: {
+        provider: 's3',
+      },
+      isQuickScan: true,
+      quickScanScore: 82,
+    });
+
+    assert.match(body, /Base quick scan text\./);
+    assert.match(body, /Website Results for: example\.pdf \(82%\)/);
+    assert.match(body, /https:\/\/downloads\.example\.com\/example\.pdf/);
+    assert.match(body, /Download links expire in/);
+  } finally {
+    if (previousUrlMode === undefined) {
+      delete process.env.AWS_S3_URL_MODE;
+    } else {
+      process.env.AWS_S3_URL_MODE = previousUrlMode;
+    }
+  }
+});
+
+test('buildAuditReportEmailBody appends storage errors for partial upload failures', () => {
+  const body = buildAuditReportEmailBody({
+    baseText: 'Full audit results.',
+    uploadedFiles: [],
+    storage: {
+      provider: 'unconfigured',
+    },
+    storageErrors: ['combined-desktop-report.pdf: upload failed'],
+  });
+
+  assert.match(body, /Full audit results\./);
+  assert.match(body, /SOME FILES COULD NOT BE UPLOADED/);
+  assert.match(body, /combined-desktop-report\.pdf: upload failed/);
+});

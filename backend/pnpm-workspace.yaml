@@ -1,0 +1,5 @@
+onlyBuiltDependencies:
+  - puppeteer
+  - sharp
+  - tesseract.js
+  - unrs-resolver

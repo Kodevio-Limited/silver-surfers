@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: beprompt-frontend
+    env: node
+  buildCommand: npm install && npm run build
+  startCommand: npx serve -s build -l $PORT
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: REACT_APP_API_URL
+        value: https://beprompt-backend-1.onrender.com

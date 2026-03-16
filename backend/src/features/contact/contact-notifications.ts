@@ -1,0 +1,53 @@
+import { logger } from '../../config/logger.ts';
+import { sendDirectMail } from '../audits/report-delivery.ts';
+
+const contactLogger = logger.child('feature:contact');
+
+export interface ContactNotificationInput {
+  id: string;
+  name?: string;
+  email?: string;
+  subject?: string;
+  message: string;
+  submittedAtIso?: string;
+}
+
+export function buildContactNotification(input: ContactNotificationInput): { subject: string; text: string } {
+  const subject = `New Contact Form Message${input.subject ? `: ${input.subject}` : ''}`;
+  const text = `
+New contact form submission received:
+
+Name: ${input.name || 'Not provided'}
+Email: ${input.email || 'Not provided'}
+Subject: ${input.subject || 'Not provided'}
+
+Message:
+${input.message}
+
+---
+Submitted at: ${input.submittedAtIso || new Date().toISOString()}
+Message ID: ${input.id}
+  `.trim();
+
+  return { subject, text };
+}
+
+export async function sendContactNotification(input: ContactNotificationInput): Promise<void> {
+  const notification = buildContactNotification(input);
+  const to = process.env.CONTACT_NOTIFICATION_EMAIL?.trim() || 'info@mg.silversurfers.ai';
+  const result = await sendDirectMail({
+    to,
+    subject: notification.subject,
+    text: notification.text,
+  });
+
+  if (result.success) {
+    contactLogger.info('Contact notification email sent.', { to, messageId: result.messageId });
+    return;
+  }
+
+  contactLogger.warn('Contact notification email failed.', {
+    to,
+    error: result.error,
+  });
+}
