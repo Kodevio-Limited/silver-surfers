@@ -1,4 +1,5 @@
 onlyBuiltDependencies:
+  - msgpackr-extract
   - puppeteer
   - sharp
   - tesseract.js

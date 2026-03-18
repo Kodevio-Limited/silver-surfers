@@ -63,3 +63,6 @@ Silver-Surfers-backend/python-scanner/.venv/
 .cache/
 coverage/
 .nyc_output/
+
+# Documentation
+*.md
