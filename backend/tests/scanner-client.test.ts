@@ -4,11 +4,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import axios from 'axios';
+import { requestScannerAudit } from '../src/features/scanner/scanner-client.ts';
 
-import { tryPythonScanner } from '../my-app/services/load_and_audit/python-scanner-client.js';
-
-test('tryPythonScanner reuses local reportPath when scanner-service omits inline report payload', async (t) => {
+test('requestScannerAudit reuses local reportPath when scanner-service omits inline report payload', async (t) => {
   t.after(async () => {
     mock.restoreAll();
   });
@@ -20,8 +18,9 @@ test('tryPythonScanner reuses local reportPath when scanner-service omits inline
     await fs.rm(reportPath, { force: true }).catch(() => undefined);
   });
 
-  mock.method(axios, 'post', async () => ({
-    data: {
+  const mockFetch = async () => ({
+    ok: true,
+    json: async () => ({
       success: true,
       reportPath,
       isLiteVersion: true,
@@ -31,50 +30,51 @@ test('tryPythonScanner reuses local reportPath when scanner-service omits inline
       strategy: 'Node-Lighthouse',
       attemptNumber: 1,
       message: 'done',
-    }
-  }));
+    })
+  });
 
-  const result = await tryPythonScanner({
+  const result = await requestScannerAudit({
     url: 'https://example.com',
     device: 'desktop',
     format: 'json',
     isLiteVersion: true
-  });
+  }, mockFetch as any);
 
   assert.equal(result.success, true);
-  assert.equal(result.reportPath, reportPath);
-  assert.equal('report' in result, false);
+  if (result.success) {
+    assert.equal(result.reportPath, reportPath);
+    assert.equal('report' in result, false);
+  }
 });
 
-test('tryPythonScanner exposes a clear browser configuration error from scanner-service 500 responses', async (t) => {
+test('requestScannerAudit exposes a clear browser configuration error from scanner-service 500 responses', async (t) => {
   t.after(() => {
     mock.restoreAll();
   });
 
-  mock.method(axios, 'post', async () => {
-    throw {
-      response: {
-        status: 500,
-        data: {
-          error: 'Internal server error',
-          details: {
-            stderr: 'Lighthouse error: Unable to locate a Chrome/Chromium executable. Set CHROME_PATH or CHROMIUM_PATH.'
-          }
-        }
-      },
-      message: 'Request failed with status code 500'
-    };
+  const mockFetch = async () => ({
+    ok: false,
+    status: 500,
+    json: async () => ({
+      success: false,
+      error: 'Internal server error',
+      details: {
+        stderr: 'Lighthouse error: Unable to locate a Chrome/Chromium executable. Set CHROME_PATH or CHROMIUM_PATH.'
+      }
+    })
   });
 
-  const result = await tryPythonScanner({
+  const result = await requestScannerAudit({
     url: 'https://example.com',
     device: 'desktop',
     format: 'json',
     isLiteVersion: true
-  });
+  }, mockFetch as any);
 
   assert.equal(result.success, false);
-  assert.equal(result.errorCode, 'SCANNER_BROWSER_UNAVAILABLE');
-  assert.equal(result.error, 'The scanner service browser is not configured correctly. Please contact support.');
-  assert.equal(result.statusCode, 500);
+  if (!result.success) {
+    assert.equal(result.errorCode, 'SCANNER_BROWSER_UNAVAILABLE');
+    assert.equal(result.error, 'The scanner service browser is not configured correctly. Please contact support.');
+    assert.equal(result.statusCode, 500);
+  }
 });

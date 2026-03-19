@@ -34,7 +34,7 @@ test('applyFullAuditEmailResult stores S3 metadata and finalizes successful jobs
     attachmentCount: 0,
     reportDirectory: '/tmp/reports',
     status: 'processing',
-  };
+  } as any;
 
   applyFullAuditEmailResult(record, {
     success: true,
@@ -58,7 +58,7 @@ test('finalizeFullAuditRecord marks missing attachments as failed when no upload
     emailStatus: 'sent',
     attachmentCount: 0,
     status: 'processing',
-  };
+  } as any;
 
   finalizeFullAuditRecord(record, { success: true, uploadedCount: 0 });
 
@@ -69,7 +69,7 @@ test('finalizeFullAuditRecord marks missing attachments as failed when no upload
 test('buildSealResultsFilePath normalizes the base URL into the legacy reasoning folder', () => {
   const resultsFilePath = buildSealResultsFilePath('team@example.com', 'https://www.example.com/dashboard');
 
-  assert.match(resultsFilePath, /Seal_Reasoning_email_baseurl/);
+  assert.match(resultsFilePath, /storage[\\\/]seal-reports/);
   assert.match(resultsFilePath, /team@example-com_https___example-com/);
   assert.match(resultsFilePath, /results\.json$/);
 });

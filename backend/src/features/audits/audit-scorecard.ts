@@ -1,5 +1,5 @@
-import customConfig from '../../../python-scanner/lighthouse-configs/custom-config.mjs';
-import customConfigLite from '../../../python-scanner/lighthouse-configs/custom-config-lite.mjs';
+import customConfig from './scanner/custom-config.js';
+import customConfigLite from './scanner/custom-config-lite.js';
 
 export type AuditRiskTier = 'low' | 'medium' | 'high';
 export type AuditScoreStatus = 'pass' | 'needs-improvement' | 'fail';
@@ -168,11 +168,11 @@ function getCategoryAuditRefs(categoryId: string): CategoryAuditRef[] {
   }
 
   return category.auditRefs
-    .map((auditRef) => ({
+    .map((auditRef: any) => ({
       id: String(auditRef.id || ''),
       weight: Number(auditRef.weight) || 0,
     }))
-    .filter((auditRef) => auditRef.id && auditRef.weight > 0);
+    .filter((auditRef: any) => auditRef.id && auditRef.weight > 0);
 }
 
 function getDimensionKey(auditId: string): AuditDimensionKey {

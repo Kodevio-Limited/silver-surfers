@@ -1,7 +1,7 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-import AuditJob from '../my-app/services/server/models/AuditJob.js';
+import AuditJob from '../src/models/audit-job.model.ts';
 
 test('AuditJob.fail clears processing lease state and schedules a retry when attempts remain', async (t) => {
   t.after(() => {
@@ -21,9 +21,9 @@ test('AuditJob.fail clears processing lease state and schedules a retry when att
     leaseHeartbeatAt: new Date(),
     processingLeaseExpiresAt: new Date(),
     browserLockAcquired: true,
-  });
+  }) as any;
 
-  mock.method(job, 'save', async function () {
+  mock.method(job, 'save', async function (this: any) {
     return this;
   });
 
@@ -54,7 +54,7 @@ test('AuditJob.fail does not schedule retryAfter once max retry count is reached
     retryCount: 2,
     processingNode: 'node-b',
     workerId: 'worker-b',
-  });
+  }) as any;
 
   mock.method(job, 'save', async function () {
     return this;
