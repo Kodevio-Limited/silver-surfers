@@ -175,7 +175,7 @@ export function buildSealResultsFilePath(email: string, url: string): string {
 
   const directoryName = `${sanitizeSealSegment(email)}_${sanitizeSealSegment(baseUrl)}`;
   return resolveBackendPath(
-    'my-app/services/report_generation/Seal_Reasoning_email_baseurl',
+    'storage/seal-reports',
     directoryName,
     'results.json',
   );

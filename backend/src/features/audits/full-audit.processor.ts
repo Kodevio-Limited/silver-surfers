@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { InternalLinksExtractor } from '../../../my-app/services/internal_links/internal_links.js';
-import { runLighthouseAudit } from '../../../my-app/services/load_and_audit/audit.js';
+import { extractInternalLinks } from './internal-links.ts';
+import { runLighthouseAudit } from './scanner/audit-service.ts';
 import { logger } from '../../config/logger.ts';
 import { resolveBackendPath } from '../../config/paths.ts';
 import type { QueueJobInput, QueueResult } from '../../infrastructure/queues/job-queue.ts';
@@ -197,8 +197,10 @@ async function findOrCreateAnalysisRecord(job: FullAuditJobPayload, planId: stri
 }
 
 async function extractLinksToAudit(url: string): Promise<string[]> {
-  const extractor = new InternalLinksExtractor();
-  const extractionResult = await extractor.extractInternalLinks(url);
+  const extractionResult = await extractInternalLinks(url, {
+    maxLinks: 25,
+    maxDepth: 1,
+  });
 
   if (!extractionResult.success) {
     throw new Error(`Link extraction failed: ${extractionResult.details || 'Unknown error'}`);

@@ -6,11 +6,9 @@ import PDFDocument from 'pdfkit';
 import { PDFDocument as PDFLib } from 'pdf-lib';
 
 import { resolveBackendPath } from '../../config/paths.ts';
-import {
-  calculateSeniorFriendlinessScore as legacyCalculateSeniorFriendlinessScore,
-  generateSeniorAccessibilityReport as legacyGenerateSeniorAccessibilityReport,
-} from '../../../my-app/services/report_generation/pdf_generator.js';
-import { generateLiteAccessibilityReport as legacyGenerateLiteAccessibilityReport } from '../../../my-app/services/report_generation/pdf-generator-lite.js';
+import { calculateSeniorFriendlinessScore as tsCalculateSeniorFriendlinessScore } from './scanner/scoring-logic.ts';
+import { generateSeniorAccessibilityReport as tsGenerateSeniorAccessibilityReport } from './scanner/pdf-generator.js';
+import { generateLiteAccessibilityReport as tsGenerateLiteAccessibilityReport } from './scanner/pdf-generator-lite.js';
 import type { FullAuditDevice } from './full-audit.helpers.ts';
 
 export interface LitePdfResult {
@@ -132,13 +130,13 @@ export async function generateLiteAccessibilityReport(
   inputFile: string,
   outputDirectory: string,
 ): Promise<LitePdfResult> {
-  return legacyGenerateLiteAccessibilityReport(inputFile, outputDirectory);
+  return tsGenerateLiteAccessibilityReport(inputFile, outputDirectory);
 }
 
 export async function calculateSeniorFriendlinessScore(
   report: Record<string, unknown>,
 ): Promise<{ finalScore: number }> {
-  return legacyCalculateSeniorFriendlinessScore(report);
+  return tsCalculateSeniorFriendlinessScore(report) as any;
 }
 
 export async function generateSeniorAccessibilityReport(options: {
@@ -151,7 +149,7 @@ export async function generateSeniorAccessibilityReport(options: {
   formFactor: FullAuditDevice;
   planType: string;
 }): Promise<SeniorPdfResult> {
-  return legacyGenerateSeniorAccessibilityReport(options);
+  return tsGenerateSeniorAccessibilityReport(options);
 }
 
 export async function generateSummaryPDF(
