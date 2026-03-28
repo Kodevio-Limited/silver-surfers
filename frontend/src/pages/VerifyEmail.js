@@ -40,7 +40,6 @@ const VerifyEmail = () => {
       // Call verify directly with the query token to avoid state timing issues
       handleVerify(undefined, qsToken);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleResend = async () => {

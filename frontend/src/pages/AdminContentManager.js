@@ -86,7 +86,6 @@ const AdminContentManager = () => {
   useEffect(() => {
     if (view === 'analysis') loadAnalysis();
     if (view === 'contact') loadContact();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, analysisStatus]);
 
   useEffect(() => {
@@ -95,7 +94,6 @@ const AdminContentManager = () => {
       loadAnalysis(analysisStatus);
     }
     if (view === 'contact') loadContact();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisQuery]);
 
   const submitBlog = async (e) => {
@@ -527,4 +525,3 @@ const AdminContentManager = () => {
 };
 
 export default AdminContentManager;
-

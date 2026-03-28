@@ -4,17 +4,24 @@ import { createApp } from './app/create-app.ts';
 import { env } from './config/env.ts';
 import { logger } from './config/logger.ts';
 import { initializeApiRuntime, registerServerShutdownHooks } from './server/runtime.ts';
-import { v1Router } from './routes/v1.ts';
-import { healthRouter as healthzRouter } from './routes/v1.ts';
 
 const serverLogger = logger.child('server');
 
 const runtime = await initializeApiRuntime();
 const app = await createApp();
-// Mount versioned API under /v1
-app.use('/v1', v1Router);
-// Simple health check endpoint (outside versioned API)
-app.use('/healthz', healthzRouter);
+app.get('/healthz', (_request, response) => {
+  response.json({
+    status: 'healthy',
+    service: 'silver-surfers-api',
+    environment: env.nodeEnv,
+    backendRoot: env.backendRoot,
+    workerMode: false,
+    queueBackend: env.queueBackend,
+    bullMqPrefix: env.bullMqPrefix,
+    scannerServiceUrl: env.scannerServiceUrl,
+    note: 'This API process only enqueues audit jobs. Run the worker and scanner services separately.',
+  });
+});
 
 const server = app.listen(env.port, '0.0.0.0', () => {
   serverLogger.info('API server listening.', {

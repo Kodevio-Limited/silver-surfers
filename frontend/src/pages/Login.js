@@ -67,7 +67,6 @@ export default function Login() {
     script.onload = () => initGoogle();
     script.onerror = () => setError('Failed to load Google auth');
     document.head.appendChild(script);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [GOOGLE_CLIENT_ID]);
 
   function initGoogle() {

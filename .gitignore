@@ -66,3 +66,5 @@ coverage/
 
 # Documentation
 *.md
+!backend/README.md
+!frontend/README.md

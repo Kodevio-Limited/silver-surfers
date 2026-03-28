@@ -24,12 +24,6 @@
     "serve": "serve -s build -l 3000"
   },
   "homepage": "/",
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
   "browserslist": {
     "production": [
       ">0.2%",
