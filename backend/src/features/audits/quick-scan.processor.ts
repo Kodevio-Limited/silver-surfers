@@ -5,6 +5,9 @@ import { env } from '../../config/env.ts';
 import { logger } from '../../config/logger.ts';
 import type { QueueJobInput, QueueReportStorage, QueueResult } from '../../infrastructure/queues/job-queue.ts';
 import { requestScannerAudit } from '../scanner/scanner-client.ts';
+import { buildAuditAiReportMarkdown, generateAuditAiReport } from './ai-reporting.ts';
+import { buildRemediationRoadmap } from './analysis-details.ts';
+import { buildAuditScorecard } from './audit-scorecard.ts';
 import { generateLiteAccessibilityReport } from './report-generation.ts';
 import { collectAttachmentsRecursive, sendAuditReportEmail } from './report-delivery.ts';
 import { buildStoredReportFilesFromAttachments, mergeStoredReportFilesWithStorage } from './report-files.ts';
@@ -54,7 +57,11 @@ function mapScannerError(errorCode: string | undefined, fallback: string): strin
     return 'The scanner service is temporarily unavailable. Please try again in a few moments.';
   }
 
-  if (errorCode === 'SERVER_ERROR' || errorCode === 'SCANNER_BROWSER_UNAVAILABLE' || errorCode === 'SCANNER_BROWSER_LAUNCH_FAILED') {
+  if (errorCode === 'SCANNER_BROWSER_UNAVAILABLE' || errorCode === 'SCANNER_BROWSER_LAUNCH_FAILED') {
+    return fallback;
+  }
+
+  if (errorCode === 'SERVER_ERROR') {
     return 'The scanner service encountered an error. Please try again later or contact support if the issue persists.';
   }
 
@@ -112,10 +119,32 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
     });
 
     if (!auditResult.success) {
+      quickScanLogger.error('Scanner-service audit failed during quick scan.', {
+        email: job.email,
+        url: job.url,
+        quickScanId: job.quickScanId,
+        errorCode: auditResult.errorCode,
+        statusCode: auditResult.statusCode,
+        error: auditResult.error,
+        originalError: auditResult.originalError,
+      });
+
       throw new Error(mapScannerError(auditResult.errorCode, auditResult.error));
     }
 
     jsonReportPath = auditResult.reportPath;
+    const reportData = JSON.parse(await fs.readFile(jsonReportPath, 'utf8')) as Record<string, unknown>;
+    const liteScorecard = buildAuditScorecard(reportData, {
+      isLiteVersion: true,
+      pageUrl: job.url,
+    });
+    const aiReport = await generateAuditAiReport({
+      url: job.url,
+      fullName,
+      scorecard: liteScorecard,
+      remediationRoadmap: buildRemediationRoadmap(liteScorecard),
+      isLiteVersion: true,
+    });
 
     const uniqueQuickScanId = job.quickScanId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const userSpecificOutputDir = path.join(
@@ -126,11 +155,22 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
 
     const pdfResult = await generateLiteAccessibilityReport(jsonReportPath, userSpecificOutputDir);
     const score = Number.parseFloat(String(pdfResult.score));
+    await fs.writeFile(
+      path.join(userSpecificOutputDir, 'ai-executive-summary-desktop.md'),
+      buildAuditAiReportMarkdown(aiReport, { url: job.url }),
+      'utf8',
+    ).catch((error) => {
+      quickScanLogger.warn('Failed to write quick scan AI executive summary markdown.', {
+        quickScanId: job.quickScanId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 
     if (job.quickScanId) {
       const attachmentsPreview = await collectAttachmentsRecursive(userSpecificOutputDir).catch(() => []);
       await QuickScan.findByIdAndUpdate(job.quickScanId, {
         scanScore: Number.isFinite(score) ? score : undefined,
+        aiReport,
         status: 'completed',
         reportGenerated: true,
         reportPath: pdfResult.reportPath,
@@ -206,7 +246,7 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
 
     return {
       emailStatus: 'sent',
-      attachmentCount: 1,
+      attachmentCount: emailResult.attachmentCount || emailResult.totalFiles || 0,
       reportDirectory: buildReportDirectory(emailResult.storage, userSpecificOutputDir),
       reportStorage: emailResult.storage,
       scansUsed: 1,

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import dotenv from 'dotenv';
 import type { QueueBackend } from '../infrastructure/queues/queue-factory.ts';
 import { backendRoot, resolveBackendPath } from './paths.ts';
@@ -6,6 +7,13 @@ dotenv.config({ path: resolveBackendPath('.env'), quiet: true });
 
 type Environment = 'development' | 'test' | 'production';
 
+const COMMON_CHROME_PATHS = [
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+];
+
 function parseNumber(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback;
@@ -13,6 +21,16 @@ function parseNumber(value: string | undefined, fallback: number): number {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseBoundedNumber(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const parsed = parseNumber(value, fallback);
+  return Math.min(maximum, Math.max(minimum, parsed));
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -59,6 +77,19 @@ function resolveQueueBackend(value: string | undefined, redisUrl: string | undef
   return redisUrl ? 'bullmq' : 'persistent';
 }
 
+function resolveChromePath(source: NodeJS.ProcessEnv): string | undefined {
+  const explicitPath = source.CHROME_PATH?.trim()
+    || source.CHROMIUM_PATH?.trim()
+    || source.PUPPETEER_EXECUTABLE_PATH?.trim()
+    || undefined;
+
+  if (explicitPath) {
+    return explicitPath;
+  }
+
+  return COMMON_CHROME_PATHS.find((candidate) => existsSync(candidate));
+}
+
 export interface AppEnv {
   backendRoot: string;
   nodeEnv: Environment;
@@ -80,8 +111,17 @@ export interface AppEnv {
   queueBackend: QueueBackend;
   redisUrl?: string;
   bullMqPrefix: string;
+  openAiApiKey?: string;
+  openAiModel: string;
+  openAiBaseUrl: string;
+  openAiTimeoutMs: number;
   scannerMaxConcurrentAudits: number;
   scannerMaxQueuedAudits: number;
+  fullAuditMaxPages: number;
+  fullAuditMaxDepth: number;
+  fullAuditCrawlDelayMs: number;
+  fullAuditCrawlTimeoutMs: number;
+  fullAuditCrawlMaxRetries: number;
   queueCleanupIntervalMs: number;
   queueMaintenanceIntervalMs: number;
   queueLeaseDurationMs: number;
@@ -117,13 +157,22 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
       source.SCANNER_SERVICE_URL?.trim()
       || source.PYTHON_SCANNER_URL?.trim()
       || `http://localhost:${scannerPort}`,
-    chromePath: source.CHROME_PATH?.trim() || source.CHROMIUM_PATH?.trim() || undefined,
+    chromePath: resolveChromePath(source),
     requestLogEnabled: parseBoolean(source.REQUEST_LOG_ENABLED, true),
     queueBackend: resolveQueueBackend(source.QUEUE_BACKEND?.trim().toLowerCase(), redisUrl),
     redisUrl,
     bullMqPrefix: source.BULLMQ_PREFIX?.trim() || 'silver-surfers',
+    openAiApiKey: source.OPENAI_API_KEY?.trim() || undefined,
+    openAiModel: source.OPENAI_MODEL?.trim() || 'gpt-4.1-mini',
+    openAiBaseUrl: source.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1',
+    openAiTimeoutMs: parseBoundedNumber(source.OPENAI_TIMEOUT_MS, 20_000, 1_000, 120_000),
     scannerMaxConcurrentAudits: parseNumber(source.SCANNER_MAX_CONCURRENT_AUDITS, 1),
     scannerMaxQueuedAudits: parseNumber(source.SCANNER_MAX_QUEUED_AUDITS, 8),
+    fullAuditMaxPages: parseBoundedNumber(source.FULL_AUDIT_MAX_PAGES, 25, 1, 500),
+    fullAuditMaxDepth: parseBoundedNumber(source.FULL_AUDIT_MAX_DEPTH, 1, 0, 5),
+    fullAuditCrawlDelayMs: parseBoundedNumber(source.FULL_AUDIT_CRAWL_DELAY_MS, 2000, 0, 10000),
+    fullAuditCrawlTimeoutMs: parseBoundedNumber(source.FULL_AUDIT_CRAWL_TIMEOUT_MS, 15000, 1000, 120000),
+    fullAuditCrawlMaxRetries: parseBoundedNumber(source.FULL_AUDIT_CRAWL_MAX_RETRIES, 3, 1, 5),
     queueCleanupIntervalMs: parseNumber(source.QUEUE_CLEANUP_INTERVAL_MS, 5 * 60 * 1000),
     queueMaintenanceIntervalMs: parseNumber(source.QUEUE_MAINTENANCE_INTERVAL_MS, 30 * 1000),
     queueLeaseDurationMs: parseNumber(source.QUEUE_LEASE_DURATION_MS, 60 * 1000),

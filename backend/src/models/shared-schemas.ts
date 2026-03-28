@@ -7,6 +7,9 @@ export const auditIssueSchema = new mongoose.Schema({
   score: { type: Number, default: 0 },
   weight: { type: Number, default: 0 },
   severity: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
+  auditSourceType: { type: String, enum: ['wcag-aa', 'aging-heuristic', 'supporting-signal'], default: 'supporting-signal' },
+  auditSourceLabel: { type: String, default: 'Supporting Signal' },
+  wcagCriteria: { type: [String], default: [] },
   displayValue: { type: mongoose.Schema.Types.Mixed },
   sourceUrl: { type: String },
 }, { _id: false });
@@ -57,6 +60,19 @@ export const reportStorageSchema = new mongoose.Schema({
   objects: { type: [storedObjectSchema], default: [] },
 }, { _id: false });
 
+export const aiReportSchema = new mongoose.Schema({
+  status: { type: String, enum: ['generated', 'fallback'], default: 'fallback' },
+  provider: { type: String, enum: ['openai', 'local'], default: 'local' },
+  model: { type: String },
+  generatedAt: { type: Date },
+  headline: { type: String },
+  summary: { type: String },
+  businessImpact: { type: String },
+  prioritySummary: { type: String },
+  topRecommendations: { type: [String], default: [] },
+  stakeholderNote: { type: String },
+}, { _id: false });
+
 export const scoreCardSchema = new mongoose.Schema({
   methodologyVersion: { type: String },
   categoryId: { type: String },
@@ -66,6 +82,7 @@ export const scoreCardSchema = new mongoose.Schema({
   pageCount: { type: Number, default: 0 },
   evaluatedAt: { type: Date },
   dimensions: { type: [dimensionScoreSchema], default: [] },
+  evaluationDimensions: { type: [dimensionScoreSchema], default: [] },
   topIssues: { type: [auditIssueSchema], default: [] },
   platforms: { type: [platformScoreSchema], default: [] },
 }, { _id: false });

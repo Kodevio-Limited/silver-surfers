@@ -40,6 +40,8 @@ function getContentType(filename: string): string {
       return 'application/json';
     case '.html':
       return 'text/html; charset=utf-8';
+    case '.md':
+      return 'text/markdown; charset=utf-8';
     case '.png':
       return 'image/png';
     case '.jpg':

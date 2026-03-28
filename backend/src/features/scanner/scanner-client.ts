@@ -92,6 +92,7 @@ function buildBrowserErrorResponse(statusCode: number, detailText: string): Scan
       error: 'The scanner service browser is not configured correctly. Please contact support.',
       errorCode: 'SCANNER_BROWSER_UNAVAILABLE',
       statusCode,
+      ...(detailText ? { originalError: detailText } : {}),
     };
   }
 
@@ -101,6 +102,7 @@ function buildBrowserErrorResponse(statusCode: number, detailText: string): Scan
       error: 'The scanner service could not launch its browser. Please try again later or contact support.',
       errorCode: 'SCANNER_BROWSER_LAUNCH_FAILED',
       statusCode,
+      ...(detailText ? { originalError: detailText } : {}),
     };
   }
 
@@ -109,6 +111,7 @@ function buildBrowserErrorResponse(statusCode: number, detailText: string): Scan
     error: `The scanner service encountered an internal error (${statusCode}). Please try again later.`,
     errorCode: 'SERVER_ERROR',
     statusCode,
+    ...(detailText ? { originalError: detailText } : {}),
   };
 }
 
@@ -150,6 +153,7 @@ function mapScannerFailure(
     success: false,
     error: payload?.error || 'Scanner service failed.',
     errorCode: payload?.errorCode || 'SCANNER_SERVICE_ERROR',
+    ...(payload?.error ? { originalError: payload.error } : {}),
     ...(statusCode ? { statusCode } : {}),
   };
 }

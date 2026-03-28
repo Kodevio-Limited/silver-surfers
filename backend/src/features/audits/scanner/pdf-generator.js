@@ -3,7 +3,8 @@ import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import PDFDocument from 'pdfkit';
-import customConfig from './custom-config.js';
+import { buildAuditScorecard } from '../audit-scorecard.ts';
+import { buildRemediationRoadmap } from '../analysis-details.ts';
 
 // Helper to get __dirname in ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -155,40 +156,20 @@ const CATEGORY_COLORS = {
     'Technical Accessibility': { bg: '#F5F5F5', border: '#616161', text: '#212121' }
 };
 
+const ROADMAP_BUCKET_STYLES = {
+    'quick-wins': { label: 'Quick Wins', color: '#28A745' },
+    'medium-effort': { label: 'Medium Effort', color: '#FD7E14' },
+    'high-effort': { label: 'High Effort', color: '#DC3545' },
+};
+
 // Function to calculate the weighted "Senior Friendliness" score
 export function calculateSeniorFriendlinessScore(report) {
-    const categoryId = 'senior-friendly';
-    const categoryConfig = customConfig.categories[categoryId];
-    if (!categoryConfig) {
-        console.error(`Error: '${categoryId}' category not found in config.`);
-        return { finalScore: 0, totalWeightedScore: 0, totalWeight: 0 };
-    }
-
-    const auditRefs = categoryConfig.auditRefs;
-    const auditResults = report.audits;
-
-    let totalWeightedScore = 0;
-    let totalWeight = 0;
-
-    for (const auditRef of auditRefs) {
-        const { id, weight } = auditRef;
-        const result = auditResults[id];
-
-        // CRITICAL: Match old backend's audit.js EXACTLY (lines 184-195)
-        // Old backend: const score = result ? (result.score ?? 0) : 0;
-        // Then: totalWeightedScore += score * weight; totalWeight += weight;
-        // This ALWAYS includes weight, even for missing audits (treats them as score 0)
-        const score = result ? (result.score ?? 0) : 0;
-        totalWeightedScore += score * weight;
-        totalWeight += weight;  // ALWAYS add weight, matching old backend exactly
-    }
-
-    if (totalWeight === 0) {
-        return { finalScore: 0, totalWeightedScore: 0, totalWeight: 0 };
-    }
-
-    const finalScore = (totalWeightedScore / totalWeight) * 100;
-    return { finalScore, totalWeightedScore, totalWeight };
+    const scorecard = buildAuditScorecard(report);
+    return {
+        finalScore: scorecard.overallScore,
+        totalWeightedScore: scorecard.overallScore,
+        totalWeight: 100,
+    };
 }
 export class ElderlyAccessibilityPDFGenerator {
     constructor(options = {}) {
@@ -899,122 +880,106 @@ addOverallScoreDisplay(scoreData) {
         
         // Description
         this.doc.fontSize(12).font('RegularFont').fillColor('#2C3E50')
-            .text('Based on the audit findings, here are the priority improvements organized by impact and implementation effort.',
+            .text('Based on the audit findings, here are the recommended improvements organized into Quick Wins, Medium Effort, and High Effort remediation buckets.',
                 this.margin, this.currentY, { width: this.pageWidth, lineGap: 2 });
         this.currentY += 40;
 
-        const audits = reportData.audits || {};
-        
-        // Categorize audits by priority based on scores and weights
-        const criticalIssues = [];
-        const mediumIssues = [];
-        const lowIssues = [];
+        const roadmap = buildRemediationRoadmap(buildAuditScorecard(reportData));
 
-        // Check each audit and categorize
-        Object.keys(AUDIT_INFO).forEach(auditId => {
-            const auditData = audits[auditId];
-            if (!auditData) return;
-            
-            const score = auditData.score !== null && auditData.score !== undefined ? auditData.score : 1;
-            const scorePercent = Math.round(score * 100);
-            
-            // Critical: score < 70% (Fail)
-            // Medium: score 70-79% (Needs Improvement)
-            // Low/Passing: score >= 80% (Pass)
-            
-            if (scorePercent < 70) {
-                criticalIssues.push({ id: auditId, score: scorePercent, data: auditData });
-            } else if (scorePercent < 80) {
-                mediumIssues.push({ id: auditId, score: scorePercent, data: auditData });
-            } else {
-                // Low priority: score >= 80% (Passing but can still be improved)
-                lowIssues.push({ id: auditId, score: scorePercent, data: auditData });
+        if (roadmap.length === 0) {
+            this.doc.fontSize(11).font('RegularFont').fillColor('#4B5563')
+                .text('No prioritized remediation roadmap could be generated from this audit package.', this.margin, this.currentY, {
+                    width: this.pageWidth,
+                    lineGap: 2,
+                });
+            this.currentY += 20;
+            return;
+        }
+
+        ['quick-wins', 'medium-effort', 'high-effort'].forEach((bucketKey) => {
+            const bucketItems = roadmap.filter((item) => item.bucketKey === bucketKey);
+            if (bucketItems.length === 0) {
+                return;
             }
-        });
 
-        // Critical Priority Section
-        if (criticalIssues.length > 0) {
-            // Section heading with icon circle
-            const iconRadius = 12;
-            const iconX = this.margin + iconRadius;
-            const iconY = this.currentY + 7; // Center vertically with text (14px font height / 2 ≈ 7)
-            
-            // Draw red circle (no character)
-            this.doc.circle(iconX, iconY, iconRadius).fill('#DC3545');
-            
-            this.doc.fontSize(16).font('BoldFont').fillColor('#DC3545')
-                .text('Critical Priority (High Impact)', this.margin + 32, this.currentY);
-            this.currentY += 35;
-
-            // Add numbered critical issues
-            criticalIssues.slice(0, 5).forEach((issue, index) => {
-                this.addRecommendationItem(issue.id, index + 1, issue.data);
-            });
-        }
-
-        // Medium Priority Section
-        if (mediumIssues.length > 0) {
-            // Calculate height needed: icon + heading + items
-            const sectionHeaderHeight = 35;
-            const itemsHeight = mediumIssues.slice(0, 3).reduce((total, issue) => {
-                this.doc.fontSize(11);
-                const info = AUDIT_INFO[issue.id];
-                if (!info) return total;
-                return total + this.doc.heightOfString(info.recommendation, { width: this.pageWidth }) + 20;
-            }, 0);
-            const totalHeight = sectionHeaderHeight + itemsHeight;
-            
-            // Check if entire section fits on current page
-            this.checkPageBreak(totalHeight);
+            const bucketStyle = ROADMAP_BUCKET_STYLES[bucketKey];
+            const sectionHeaderHeight = 45;
+            this.checkPageBreak(sectionHeaderHeight);
 
             const iconRadius = 12;
             const iconX = this.margin + iconRadius;
-            const iconY = this.currentY + 7; // Center vertically with text (14px font height / 2 ≈ 7)
-            
-            // Draw yellow/orange circle (no character)
-            this.doc.circle(iconX, iconY, iconRadius).fill('#FD7E14');
-            
-            this.doc.fontSize(16).font('BoldFont').fillColor('#2C5F9C')
-                .text('Medium Priority (Moderate Impact)', this.margin + 32, this.currentY);
-            this.currentY += 35;
+            const iconY = this.currentY + 7;
 
-            mediumIssues.slice(0, 3).forEach((issue, index) => {
-                this.addRecommendationItem(issue.id, index + 1, issue.data, true);
-            });
-        }
+            this.doc.circle(iconX, iconY, iconRadius).fill(bucketStyle.color);
 
-        // Low Priority Section (optional, if there are any low priority items)
-        if (lowIssues.length > 0) {
-            // Calculate height needed: icon + heading + items (no description text)
-            const sectionHeaderHeight = 25;
-            const itemsToShow = Math.min(lowIssues.length, 10);
-            const itemsHeight = lowIssues.slice(0, itemsToShow).reduce((total, issue) => {
-                this.doc.fontSize(11);
-                const info = AUDIT_INFO[issue.id];
-                if (!info) return total;
-                return total + this.doc.heightOfString(info.recommendation, { width: this.pageWidth }) + 20;
-            }, 0);
-            const totalHeight = sectionHeaderHeight + itemsHeight;
-            
-            // Check if entire section fits on current page
-            this.checkPageBreak(totalHeight);
+            this.doc.fontSize(16).font('BoldFont').fillColor(bucketStyle.color)
+                .text(bucketStyle.label, this.margin + 32, this.currentY);
+            this.currentY += 20;
 
-            const iconRadius = 12;
-            const iconX = this.margin + iconRadius;
-            const iconY = this.currentY + 7; // Center vertically with text (14px font height / 2 ≈ 7)
-            
-            // Draw green circle (no character)
-            this.doc.circle(iconX, iconY, iconRadius).fill('#28A745');
-            
-            this.doc.fontSize(16).font('BoldFont').fillColor('#2C5F9C')
-                .text('Low Priority (Minor Improvements)', this.margin + 32, this.currentY);
+            this.doc.fontSize(10).font('RegularFont').fillColor('#4B5563')
+                .text(`${bucketItems.length} recommendation${bucketItems.length === 1 ? '' : 's'} in this workstream.`, this.margin + 32, this.currentY, {
+                    width: this.pageWidth - 32,
+                    lineGap: 2,
+                });
             this.currentY += 25;
-            
-            // Display all low priority items (or up to 10 to keep report manageable)
-            lowIssues.slice(0, itemsToShow).forEach((issue, index) => {
-                this.addRecommendationItem(issue.id, index + 1, issue.data, true);
+
+            bucketItems.forEach((item, index) => {
+                this.addRoadmapRecommendationItem(item, index + 1);
             });
+        });
+    }
+
+    addRoadmapRecommendationItem(item, number) {
+        const titleHeight = 18;
+        this.doc.fontSize(11);
+        const metadata = [
+            `${item.impact.charAt(0).toUpperCase() + item.impact.slice(1)} impact`,
+            `${item.effort.charAt(0).toUpperCase() + item.effort.slice(1)} effort`,
+            item.dimensionLabel,
+            item.evaluationDimensionLabel,
+            item.auditSourceLabel,
+            ...(Array.isArray(item.wcagCriteria) ? item.wcagCriteria.map((criterion) => `WCAG ${criterion}`) : []),
+        ].filter(Boolean).join(' | ');
+        const metaHeight = this.doc.heightOfString(metadata, { width: this.pageWidth });
+        const actionText = `Recommended action: ${item.action}`;
+        const actionHeight = this.doc.heightOfString(actionText, { width: this.pageWidth, lineGap: 2 });
+        const whyText = `Why it matters: ${item.whyItMatters}`;
+        const whyHeight = this.doc.heightOfString(whyText, { width: this.pageWidth, lineGap: 2 });
+        const sourceText = item.sourceUrl ? `Source page: ${item.sourceUrl}` : '';
+        const sourceHeight = item.sourceUrl
+            ? this.doc.heightOfString(sourceText, { width: this.pageWidth, lineGap: 1 })
+            : 0;
+        const totalHeight = titleHeight + metaHeight + actionHeight + whyHeight + sourceHeight + 36;
+
+        this.checkPageBreak(totalHeight);
+
+        this.doc.fontSize(13).font('BoldFont').fillColor('#2C3E50')
+            .text(`${number}. ${item.title}`, this.margin, this.currentY);
+        this.currentY += titleHeight;
+
+        this.doc.fontSize(10).font('RegularFont').fillColor('#6B7280')
+            .text(metadata, this.margin, this.currentY, { width: this.pageWidth, lineGap: 1 });
+        this.currentY += metaHeight + 8;
+
+        this.doc.fontSize(11).font('BoldFont').fillColor('#2C3E50')
+            .text('Recommended action:', this.margin, this.currentY, { continued: true })
+            .font('RegularFont')
+            .text(` ${item.action}`, { width: this.pageWidth, lineGap: 2 });
+        this.currentY += actionHeight + 8;
+
+        this.doc.fontSize(11).font('BoldFont').fillColor('#2C3E50')
+            .text('Why it matters:', this.margin, this.currentY, { continued: true })
+            .font('RegularFont')
+            .text(` ${item.whyItMatters}`, { width: this.pageWidth, lineGap: 2 });
+        this.currentY += whyHeight + 8;
+
+        if (item.sourceUrl) {
+            this.doc.fontSize(9).font('RegularFont').fillColor('#6B7280')
+                .text(sourceText, this.margin, this.currentY, { width: this.pageWidth, lineGap: 1 });
+            this.currentY += sourceHeight + 8;
         }
+
+        this.currentY += 10;
     }
 
     addRecommendationItem(auditId, number, auditData, isCompact = false) {
@@ -1363,7 +1328,7 @@ addOverallScoreDisplay(scoreData) {
         this.currentY += 30;
 
         const nextSteps = [
-            'Review and implement the Critical Priority recommendations first, as these have the highest impact on user experience',
+            'Implement the Quick Wins first, then schedule the Medium Effort and High Effort remediation workstreams in a realistic delivery plan',
             'Create an accessibility improvement roadmap with timeline and resource allocation',
             'Test improvements with actual users to validate effectiveness',
             'Schedule regular accessibility audits to maintain and improve standards',

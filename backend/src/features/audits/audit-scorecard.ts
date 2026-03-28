@@ -3,7 +3,18 @@ import customConfigLite from './scanner/custom-config-lite.js';
 
 export type AuditRiskTier = 'low' | 'medium' | 'high';
 export type AuditScoreStatus = 'pass' | 'needs-improvement' | 'fail';
-export type AuditDimensionKey = 'visualClarity' | 'cognitiveLoad' | 'motorAccessibility' | 'contentTrust';
+export type AuditPrimaryDimensionKey = 'visualClarity' | 'cognitiveLoad' | 'motorAccessibility' | 'contentTrust';
+export type AuditDimensionKey = AuditPrimaryDimensionKey;
+export type AuditIssueSourceType = 'wcag-aa' | 'aging-heuristic' | 'supporting-signal';
+export type AuditEvaluationDimensionKey =
+  | 'technicalAccessibility'
+  | 'visualClarityDesign'
+  | 'cognitiveLoadComplexity'
+  | 'navigationArchitecture'
+  | 'contentReadability'
+  | 'interactionForms'
+  | 'trustSecuritySignals'
+  | 'mobileOptimization';
 
 export interface AuditIssueSummary {
   auditId: string;
@@ -12,12 +23,24 @@ export interface AuditIssueSummary {
   score: number;
   weight: number;
   severity: AuditRiskTier;
+  auditSourceType: AuditIssueSourceType;
+  auditSourceLabel: string;
+  wcagCriteria?: string[];
   displayValue?: string;
   sourceUrl?: string;
 }
 
 export interface AuditDimensionScore {
-  key: AuditDimensionKey;
+  key: AuditPrimaryDimensionKey;
+  label: string;
+  score: number;
+  weight: number;
+  issueCount: number;
+  topIssues: AuditIssueSummary[];
+}
+
+export interface AuditEvaluationDimensionScore {
+  key: AuditEvaluationDimensionKey;
   label: string;
   score: number;
   weight: number;
@@ -41,6 +64,7 @@ export interface AuditScorecard {
   pageCount: number;
   evaluatedAt: string;
   dimensions: AuditDimensionScore[];
+  evaluationDimensions: AuditEvaluationDimensionScore[];
   topIssues: AuditIssueSummary[];
   platforms: AuditPlatformScore[];
 }
@@ -48,6 +72,12 @@ export interface AuditScorecard {
 interface CategoryAuditRef {
   id: string;
   weight: number;
+}
+
+interface AuditIssueMetadata {
+  auditSourceType: AuditIssueSourceType;
+  auditSourceLabel: string;
+  wcagCriteria?: string[];
 }
 
 interface LighthouseAuditResultLike {
@@ -76,39 +106,128 @@ const SCORECARD_METHOD_VERSION = 'silver-score-v1';
 const FULL_CATEGORY_ID = 'senior-friendly';
 const LITE_CATEGORY_ID = 'senior-friendly-lite';
 
-const DIMENSION_LABELS: Record<AuditDimensionKey, string> = {
+const PRIMARY_DIMENSION_LABELS: Record<AuditPrimaryDimensionKey, string> = {
   visualClarity: 'Visual Clarity',
   cognitiveLoad: 'Cognitive Load',
   motorAccessibility: 'Motor Accessibility',
   contentTrust: 'Content & Trust',
 };
 
-const DIMENSION_ORDER: AuditDimensionKey[] = [
+const PRIMARY_DIMENSION_WEIGHTS: Record<AuditPrimaryDimensionKey, number> = {
+  visualClarity: 30,
+  cognitiveLoad: 25,
+  motorAccessibility: 25,
+  contentTrust: 20,
+};
+
+const PRIMARY_DIMENSION_ORDER: AuditPrimaryDimensionKey[] = [
   'visualClarity',
   'cognitiveLoad',
   'motorAccessibility',
   'contentTrust',
 ];
 
-const AUDIT_DIMENSION_MAP: Record<string, AuditDimensionKey> = {
-  'color-contrast': 'visualClarity',
-  'text-font-audit': 'visualClarity',
-  'viewport': 'visualClarity',
-  'cumulative-layout-shift': 'visualClarity',
-  'layout-brittle-audit': 'visualClarity',
-  'flesch-kincaid-audit': 'cognitiveLoad',
-  'heading-order': 'cognitiveLoad',
-  'dom-size': 'cognitiveLoad',
-  'errors-in-console': 'cognitiveLoad',
-  'interactive-color-audit': 'cognitiveLoad',
-  'target-size': 'motorAccessibility',
-  'link-name': 'motorAccessibility',
-  'button-name': 'motorAccessibility',
-  'label': 'motorAccessibility',
-  'largest-contentful-paint': 'contentTrust',
-  'total-blocking-time': 'contentTrust',
-  'is-on-https': 'contentTrust',
-  'geolocation-on-start': 'contentTrust',
+const EVALUATION_DIMENSION_LABELS: Record<AuditEvaluationDimensionKey, string> = {
+  technicalAccessibility: 'Technical Accessibility',
+  visualClarityDesign: 'Visual Clarity & Design',
+  cognitiveLoadComplexity: 'Cognitive Load & Complexity',
+  navigationArchitecture: 'Navigation & Information Architecture',
+  contentReadability: 'Content Readability & Plain Language',
+  interactionForms: 'Interaction & Forms',
+  trustSecuritySignals: 'Trust & Security Signals',
+  mobileOptimization: 'Mobile & Cross-Platform Optimization',
+};
+
+const EVALUATION_DIMENSION_ORDER: AuditEvaluationDimensionKey[] = [
+  'technicalAccessibility',
+  'visualClarityDesign',
+  'cognitiveLoadComplexity',
+  'navigationArchitecture',
+  'contentReadability',
+  'interactionForms',
+  'trustSecuritySignals',
+  'mobileOptimization',
+];
+
+const AUDIT_EVALUATION_DIMENSION_MAP: Record<string, AuditEvaluationDimensionKey> = {
+  'color-contrast': 'visualClarityDesign',
+  'text-font-audit': 'visualClarityDesign',
+  viewport: 'mobileOptimization',
+  'cumulative-layout-shift': 'visualClarityDesign',
+  'layout-brittle-audit': 'interactionForms',
+  'flesch-kincaid-audit': 'contentReadability',
+  'heading-order': 'navigationArchitecture',
+  'dom-size': 'cognitiveLoadComplexity',
+  'errors-in-console': 'technicalAccessibility',
+  'interactive-color-audit': 'visualClarityDesign',
+  'target-size': 'interactionForms',
+  'link-name': 'navigationArchitecture',
+  'button-name': 'technicalAccessibility',
+  label: 'technicalAccessibility',
+  'largest-contentful-paint': 'mobileOptimization',
+  'total-blocking-time': 'cognitiveLoadComplexity',
+  'is-on-https': 'trustSecuritySignals',
+  'geolocation-on-start': 'trustSecuritySignals',
+};
+
+const PRIMARY_DIMENSION_CONTRIBUTORS: Record<AuditPrimaryDimensionKey, AuditEvaluationDimensionKey[]> = {
+  visualClarity: ['visualClarityDesign', 'mobileOptimization'],
+  cognitiveLoad: ['cognitiveLoadComplexity', 'navigationArchitecture', 'contentReadability'],
+  motorAccessibility: ['interactionForms', 'mobileOptimization'],
+  contentTrust: ['technicalAccessibility', 'contentReadability', 'trustSecuritySignals'],
+};
+
+const DEFAULT_AUDIT_METADATA: AuditIssueMetadata = {
+  auditSourceType: 'supporting-signal',
+  auditSourceLabel: 'Supporting Signal',
+};
+
+const AUDIT_METADATA: Record<string, AuditIssueMetadata> = {
+  'color-contrast': {
+    auditSourceType: 'wcag-aa',
+    auditSourceLabel: 'WCAG AA',
+    wcagCriteria: ['1.4.3'],
+  },
+  'target-size': {
+    auditSourceType: 'wcag-aa',
+    auditSourceLabel: 'WCAG AA',
+    wcagCriteria: ['2.5.8'],
+  },
+  'layout-brittle-audit': {
+    auditSourceType: 'wcag-aa',
+    auditSourceLabel: 'WCAG AA',
+    wcagCriteria: ['1.4.12'],
+  },
+  'link-name': {
+    auditSourceType: 'wcag-aa',
+    auditSourceLabel: 'WCAG AA',
+    wcagCriteria: ['2.4.4'],
+  },
+  label: {
+    auditSourceType: 'wcag-aa',
+    auditSourceLabel: 'WCAG AA',
+    wcagCriteria: ['3.3.2'],
+  },
+  'text-font-audit': {
+    auditSourceType: 'aging-heuristic',
+    auditSourceLabel: 'Aging Heuristic',
+  },
+  'flesch-kincaid-audit': {
+    auditSourceType: 'aging-heuristic',
+    auditSourceLabel: 'Aging Heuristic',
+  },
+  'interactive-color-audit': {
+    auditSourceType: 'aging-heuristic',
+    auditSourceLabel: 'Aging Heuristic',
+  },
+  'heading-order': {
+    auditSourceType: 'aging-heuristic',
+    auditSourceLabel: 'Aging Heuristic',
+  },
+  'geolocation-on-start': {
+    auditSourceType: 'aging-heuristic',
+    auditSourceLabel: 'Aging Heuristic',
+  },
 };
 
 function roundScore(value: number): number {
@@ -175,14 +294,29 @@ function getCategoryAuditRefs(categoryId: string): CategoryAuditRef[] {
     .filter((auditRef: any) => auditRef.id && auditRef.weight > 0);
 }
 
-function getDimensionKey(auditId: string): AuditDimensionKey {
-  return AUDIT_DIMENSION_MAP[auditId] || 'contentTrust';
+function getEvaluationDimensionKey(auditId: string): AuditEvaluationDimensionKey {
+  return AUDIT_EVALUATION_DIMENSION_MAP[auditId] || 'technicalAccessibility';
 }
 
-function createEmptyDimensionScore(key: AuditDimensionKey): AuditDimensionScore {
+function getAuditMetadata(auditId: string): AuditIssueMetadata {
+  return AUDIT_METADATA[auditId] || DEFAULT_AUDIT_METADATA;
+}
+
+function createEmptyPrimaryDimensionScore(key: AuditPrimaryDimensionKey): AuditDimensionScore {
   return {
     key,
-    label: DIMENSION_LABELS[key],
+    label: PRIMARY_DIMENSION_LABELS[key],
+    score: 0,
+    weight: PRIMARY_DIMENSION_WEIGHTS[key],
+    issueCount: 0,
+    topIssues: [],
+  };
+}
+
+function createEmptyEvaluationDimensionScore(key: AuditEvaluationDimensionKey): AuditEvaluationDimensionScore {
+  return {
+    key,
+    label: EVALUATION_DIMENSION_LABELS[key],
     score: 0,
     weight: 0,
     issueCount: 0,
@@ -204,6 +338,65 @@ function sortIssues(issues: AuditIssueSummary[]): AuditIssueSummary[] {
   });
 }
 
+function dedupeIssues(issues: AuditIssueSummary[]): AuditIssueSummary[] {
+  const unique = new Map<string, AuditIssueSummary>();
+
+  for (const issue of sortIssues(issues)) {
+    const key = `${issue.auditId}::${issue.sourceUrl || ''}`;
+    if (!unique.has(key)) {
+      unique.set(key, issue);
+    }
+  }
+
+  return [...unique.values()];
+}
+
+function buildPrimaryDimensions(
+  evaluationDimensions: AuditEvaluationDimensionScore[],
+): {
+  dimensions: AuditDimensionScore[];
+  overallScore: number;
+} {
+  const evaluationByKey = new Map<AuditEvaluationDimensionKey, AuditEvaluationDimensionScore>(
+    evaluationDimensions.map((dimension) => [dimension.key, dimension]),
+  );
+
+  let overallWeightedScore = 0;
+  let overallWeight = 0;
+
+  const dimensions = PRIMARY_DIMENSION_ORDER.map((primaryKey) => {
+    const contributors = PRIMARY_DIMENSION_CONTRIBUTORS[primaryKey]
+      .map((dimensionKey) => evaluationByKey.get(dimensionKey))
+      .filter((dimension): dimension is AuditEvaluationDimensionScore => Boolean(dimension));
+
+    const contributorWeight = contributors.reduce((sum, dimension) => sum + (Number(dimension.weight) || 0), 0);
+    const score = contributorWeight > 0
+      ? roundScore(
+        contributors.reduce((sum, dimension) => sum + (dimension.score * dimension.weight), 0) / contributorWeight,
+      )
+      : 0;
+
+    if (contributorWeight > 0) {
+      overallWeightedScore += score * PRIMARY_DIMENSION_WEIGHTS[primaryKey];
+      overallWeight += PRIMARY_DIMENSION_WEIGHTS[primaryKey];
+    }
+
+    return {
+      key: primaryKey,
+      label: PRIMARY_DIMENSION_LABELS[primaryKey],
+      score,
+      weight: PRIMARY_DIMENSION_WEIGHTS[primaryKey],
+      issueCount: contributors.reduce((sum, dimension) => sum + (dimension.issueCount || 0), 0),
+      topIssues: dedupeIssues(contributors.flatMap((dimension) => dimension.topIssues || [])).slice(0, 3),
+    };
+  });
+
+  return {
+    dimensions,
+    overallScore: overallWeight > 0 ? roundScore(overallWeightedScore / overallWeight) : 0,
+  };
+}
+
 export function buildAuditScorecard(
   report: LighthouseReportLike,
   options: BuildAuditScorecardOptions = {},
@@ -212,85 +405,82 @@ export function buildAuditScorecard(
   const auditRefs = getCategoryAuditRefs(categoryId);
   const audits = report?.audits || {};
 
-  const dimensionIssues = new Map<AuditDimensionKey, AuditIssueSummary[]>();
-  const dimensionWeightedScores = new Map<AuditDimensionKey, number>();
-  const dimensionWeights = new Map<AuditDimensionKey, number>();
-  const dimensionIssueCounts = new Map<AuditDimensionKey, number>();
+  const evaluationIssues = new Map<AuditEvaluationDimensionKey, AuditIssueSummary[]>();
+  const evaluationWeightedScores = new Map<AuditEvaluationDimensionKey, number>();
+  const evaluationWeights = new Map<AuditEvaluationDimensionKey, number>();
+  const evaluationIssueCounts = new Map<AuditEvaluationDimensionKey, number>();
 
-  let totalWeightedScore = 0;
-  let totalWeight = 0;
-
-  for (const key of DIMENSION_ORDER) {
-    dimensionIssues.set(key, []);
-    dimensionWeightedScores.set(key, 0);
-    dimensionWeights.set(key, 0);
-    dimensionIssueCounts.set(key, 0);
+  for (const key of EVALUATION_DIMENSION_ORDER) {
+    evaluationIssues.set(key, []);
+    evaluationWeightedScores.set(key, 0);
+    evaluationWeights.set(key, 0);
+    evaluationIssueCounts.set(key, 0);
   }
 
   for (const auditRef of auditRefs) {
     const audit = audits[auditRef.id];
     const score = clampAuditScore(audit?.score);
-    const dimensionKey = getDimensionKey(auditRef.id);
+    const evaluationKey = getEvaluationDimensionKey(auditRef.id);
+    const metadata = getAuditMetadata(auditRef.id);
 
-    totalWeightedScore += score * auditRef.weight;
-    totalWeight += auditRef.weight;
-
-    dimensionWeightedScores.set(
-      dimensionKey,
-      (dimensionWeightedScores.get(dimensionKey) || 0) + (score * auditRef.weight),
+    evaluationWeightedScores.set(
+      evaluationKey,
+      (evaluationWeightedScores.get(evaluationKey) || 0) + (score * auditRef.weight),
     );
-    dimensionWeights.set(
-      dimensionKey,
-      (dimensionWeights.get(dimensionKey) || 0) + auditRef.weight,
+    evaluationWeights.set(
+      evaluationKey,
+      (evaluationWeights.get(evaluationKey) || 0) + auditRef.weight,
     );
 
     if (score < 0.999) {
-      dimensionIssueCounts.set(
-        dimensionKey,
-        (dimensionIssueCounts.get(dimensionKey) || 0) + 1,
+      evaluationIssueCounts.set(
+        evaluationKey,
+        (evaluationIssueCounts.get(evaluationKey) || 0) + 1,
       );
-      dimensionIssues.get(dimensionKey)?.push({
+      evaluationIssues.get(evaluationKey)?.push({
         auditId: auditRef.id,
         title: audit?.title || auditRef.id,
         description: audit?.description || '',
         score: roundScore(score * 100),
         weight: auditRef.weight,
         severity: classifyIssueSeverity(score),
+        auditSourceType: metadata.auditSourceType,
+        auditSourceLabel: metadata.auditSourceLabel,
+        ...(metadata.wcagCriteria?.length ? { wcagCriteria: metadata.wcagCriteria } : {}),
         ...(audit?.displayValue ? { displayValue: audit.displayValue } : {}),
         ...(options.pageUrl ? { sourceUrl: options.pageUrl } : {}),
       });
     }
   }
 
-  const overallScore = totalWeight > 0 ? roundScore((totalWeightedScore / totalWeight) * 100) : 0;
-
-  const dimensions = DIMENSION_ORDER.map((dimensionKey) => {
-    const weight = dimensionWeights.get(dimensionKey) || 0;
-    const weightedScore = dimensionWeightedScores.get(dimensionKey) || 0;
+  const evaluationDimensions = EVALUATION_DIMENSION_ORDER.map((evaluationKey) => {
+    const weight = evaluationWeights.get(evaluationKey) || 0;
+    const weightedScore = evaluationWeightedScores.get(evaluationKey) || 0;
     const score = weight > 0 ? roundScore((weightedScore / weight) * 100) : 0;
-    const issues = sortIssues(dimensionIssues.get(dimensionKey) || []).slice(0, 3);
 
     return {
-      key: dimensionKey,
-      label: DIMENSION_LABELS[dimensionKey],
+      key: evaluationKey,
+      label: EVALUATION_DIMENSION_LABELS[evaluationKey],
       score,
       weight,
-      issueCount: dimensionIssueCounts.get(dimensionKey) || 0,
-      topIssues: issues,
+      issueCount: evaluationIssueCounts.get(evaluationKey) || 0,
+      topIssues: sortIssues(evaluationIssues.get(evaluationKey) || []).slice(0, 3),
     };
   });
 
-  const topIssues = sortIssues(dimensions.flatMap((dimension) => dimension.topIssues)).slice(0, 5);
+  const primaryScores = buildPrimaryDimensions(evaluationDimensions);
+  const topIssues = dedupeIssues(evaluationDimensions.flatMap((dimension) => dimension.topIssues || [])).slice(0, 5);
 
   return {
     methodologyVersion: SCORECARD_METHOD_VERSION,
     categoryId,
-    overallScore,
-    riskTier: classifyRiskTier(overallScore),
-    scoreStatus: classifyScoreStatus(overallScore),
+    overallScore: primaryScores.overallScore,
+    riskTier: classifyRiskTier(primaryScores.overallScore),
+    scoreStatus: classifyScoreStatus(primaryScores.overallScore),
     pageCount: 1,
     evaluatedAt: new Date().toISOString(),
-    dimensions,
+    dimensions: primaryScores.dimensions,
+    evaluationDimensions,
     topIssues,
     platforms: [],
   };
@@ -301,6 +491,9 @@ export function buildAggregateAuditScorecard(
   options: BuildAggregateAuditScorecardOptions = {},
 ): AuditScorecard {
   if (!scorecards.length) {
+    const emptyEvaluationDimensions = EVALUATION_DIMENSION_ORDER.map((key) => createEmptyEvaluationDimensionScore(key));
+    const primaryScores = buildPrimaryDimensions(emptyEvaluationDimensions);
+
     return {
       methodologyVersion: SCORECARD_METHOD_VERSION,
       categoryId: options.categoryId || FULL_CATEGORY_ID,
@@ -309,57 +502,81 @@ export function buildAggregateAuditScorecard(
       scoreStatus: 'fail',
       pageCount: options.pageCount || 0,
       evaluatedAt: new Date().toISOString(),
-      dimensions: DIMENSION_ORDER.map((key) => createEmptyDimensionScore(key)),
+      dimensions: primaryScores.dimensions,
+      evaluationDimensions: emptyEvaluationDimensions,
       topIssues: [],
       platforms: options.platforms || [],
     };
   }
 
-  const dimensionScores = new Map<AuditDimensionKey, number[]>();
-  const dimensionIssues = new Map<AuditDimensionKey, AuditIssueSummary[]>();
-  const dimensionWeights = new Map<AuditDimensionKey, number>();
+  const primaryDimensionScores = new Map<AuditPrimaryDimensionKey, number[]>();
+  const primaryDimensionIssues = new Map<AuditPrimaryDimensionKey, AuditIssueSummary[]>();
+  const evaluationDimensionScores = new Map<AuditEvaluationDimensionKey, number[]>();
+  const evaluationDimensionIssues = new Map<AuditEvaluationDimensionKey, AuditIssueSummary[]>();
+  const evaluationDimensionWeights = new Map<AuditEvaluationDimensionKey, number>();
 
-  for (const key of DIMENSION_ORDER) {
-    dimensionScores.set(key, []);
-    dimensionIssues.set(key, []);
-    dimensionWeights.set(key, 0);
+  for (const key of PRIMARY_DIMENSION_ORDER) {
+    primaryDimensionScores.set(key, []);
+    primaryDimensionIssues.set(key, []);
   }
 
-  const allIssues: AuditIssueSummary[] = [];
-  let overallScoreSum = 0;
+  for (const key of EVALUATION_DIMENSION_ORDER) {
+    evaluationDimensionScores.set(key, []);
+    evaluationDimensionIssues.set(key, []);
+    evaluationDimensionWeights.set(key, 0);
+  }
+
   let pageCount = 0;
 
   for (const scorecard of scorecards) {
-    overallScoreSum += Number(scorecard.overallScore) || 0;
     pageCount += Number(scorecard.pageCount) || 1;
 
     for (const dimension of scorecard.dimensions || []) {
-      dimensionScores.get(dimension.key)?.push(Number(dimension.score) || 0);
-      dimensionWeights.set(dimension.key, Number(dimension.weight) || 0);
+      primaryDimensionScores.get(dimension.key)?.push(Number(dimension.score) || 0);
+      primaryDimensionIssues.get(dimension.key)?.push(...(Array.isArray(dimension.topIssues) ? dimension.topIssues : []));
+    }
 
-      const topIssues = Array.isArray(dimension.topIssues) ? dimension.topIssues : [];
-      dimensionIssues.get(dimension.key)?.push(...topIssues);
-      allIssues.push(...topIssues);
+    for (const evaluationDimension of scorecard.evaluationDimensions || []) {
+      evaluationDimensionScores.get(evaluationDimension.key)?.push(Number(evaluationDimension.score) || 0);
+      evaluationDimensionIssues.get(evaluationDimension.key)?.push(...(
+        Array.isArray(evaluationDimension.topIssues) ? evaluationDimension.topIssues : []
+      ));
+      evaluationDimensionWeights.set(evaluationDimension.key, Number(evaluationDimension.weight) || 0);
     }
   }
 
-  const overallScore = roundScore(overallScoreSum / scorecards.length);
-  const dimensions = DIMENSION_ORDER.map((dimensionKey) => {
-    const scores = dimensionScores.get(dimensionKey) || [];
+  const evaluationDimensions = EVALUATION_DIMENSION_ORDER.map((evaluationKey) => {
+    const scores = evaluationDimensionScores.get(evaluationKey) || [];
     const score = scores.length
       ? roundScore(scores.reduce((sum, value) => sum + value, 0) / scores.length)
       : 0;
-    const issues = sortIssues(dimensionIssues.get(dimensionKey) || []).slice(0, 3);
 
     return {
-      key: dimensionKey,
-      label: DIMENSION_LABELS[dimensionKey],
+      key: evaluationKey,
+      label: EVALUATION_DIMENSION_LABELS[evaluationKey],
       score,
-      weight: dimensionWeights.get(dimensionKey) || 0,
-      issueCount: (dimensionIssues.get(dimensionKey) || []).length,
-      topIssues: issues,
+      weight: evaluationDimensionWeights.get(evaluationKey) || 0,
+      issueCount: (evaluationDimensionIssues.get(evaluationKey) || []).length,
+      topIssues: dedupeIssues(evaluationDimensionIssues.get(evaluationKey) || []).slice(0, 3),
     };
   });
+
+  const primaryScores = buildPrimaryDimensions(evaluationDimensions);
+  const dimensions = PRIMARY_DIMENSION_ORDER.map((primaryKey) => {
+    const existing = primaryScores.dimensions.find((dimension) => dimension.key === primaryKey) || createEmptyPrimaryDimensionScore(primaryKey);
+    const issueCount = (primaryDimensionIssues.get(primaryKey) || []).length;
+
+    return {
+      ...existing,
+      issueCount,
+      topIssues: dedupeIssues(primaryDimensionIssues.get(primaryKey) || []).slice(0, 3),
+    };
+  });
+
+  const overallScore = roundScore(
+    dimensions.reduce((sum, dimension) => sum + (dimension.score * dimension.weight), 0)
+    / dimensions.reduce((sum, dimension) => sum + dimension.weight, 0),
+  );
 
   return {
     methodologyVersion: SCORECARD_METHOD_VERSION,
@@ -370,7 +587,8 @@ export function buildAggregateAuditScorecard(
     pageCount: options.pageCount || pageCount,
     evaluatedAt: new Date().toISOString(),
     dimensions,
-    topIssues: sortIssues(allIssues).slice(0, 5),
+    evaluationDimensions,
+    topIssues: dedupeIssues(evaluationDimensions.flatMap((dimension) => dimension.topIssues || [])).slice(0, 5),
     platforms: options.platforms || [],
   };
 }

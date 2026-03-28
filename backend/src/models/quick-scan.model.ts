@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-import { reportFileSchema, reportStorageSchema } from './shared-schemas.ts';
+import { aiReportSchema, reportFileSchema, reportStorageSchema } from './shared-schemas.ts';
 
 const quickScanSchema = new mongoose.Schema({
   url: {
@@ -44,6 +44,10 @@ const quickScanSchema = new mongoose.Schema({
   reportPath: {
     type: String,
     default: null,
+  },
+  aiReport: {
+    type: aiReportSchema,
+    default: undefined,
   },
   reportStorage: {
     type: reportStorageSchema,

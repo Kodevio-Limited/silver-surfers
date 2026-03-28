@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildAnalysisDetail, buildRemediationRoadmap } from '../src/features/audits/analysis-details.ts';
+import type { AuditAiReport } from '../src/features/audits/ai-reporting.ts';
 
 const sampleScorecard = {
   methodologyVersion: 'silver-score-v1',
@@ -16,7 +17,7 @@ const sampleScorecard = {
       key: 'visualClarity',
       label: 'Visual Clarity',
       score: 58,
-      weight: 10,
+      weight: 30,
       issueCount: 2,
       topIssues: [
         {
@@ -26,6 +27,9 @@ const sampleScorecard = {
           score: 52,
           weight: 9,
           severity: 'high',
+          auditSourceType: 'wcag-aa',
+          auditSourceLabel: 'WCAG AA',
+          wcagCriteria: ['1.4.3'],
           displayValue: '4.1:1',
           sourceUrl: 'https://example.com/home',
         },
@@ -35,7 +39,7 @@ const sampleScorecard = {
       key: 'motorAccessibility',
       label: 'Motor Accessibility',
       score: 61,
-      weight: 8,
+      weight: 25,
       issueCount: 1,
       topIssues: [
         {
@@ -45,6 +49,9 @@ const sampleScorecard = {
           score: 61,
           weight: 6,
           severity: 'high',
+          auditSourceType: 'wcag-aa',
+          auditSourceLabel: 'WCAG AA',
+          wcagCriteria: ['2.5.8'],
           sourceUrl: 'https://example.com/checkout',
         },
       ],
@@ -52,6 +59,82 @@ const sampleScorecard = {
     {
       key: 'contentTrust',
       label: 'Content & Trust',
+      score: 74,
+      weight: 20,
+      issueCount: 1,
+      topIssues: [
+        {
+          auditId: 'total-blocking-time',
+          title: 'Main thread is blocked too long',
+          description: 'The page remains unresponsive during key interactions.',
+          score: 74,
+          weight: 3,
+          severity: 'medium',
+          auditSourceType: 'supporting-signal',
+          auditSourceLabel: 'Supporting Signal',
+        },
+      ],
+    },
+    {
+      key: 'cognitiveLoad',
+      label: 'Cognitive Load',
+      score: 77,
+      weight: 25,
+      issueCount: 0,
+      topIssues: [],
+    },
+  ],
+  evaluationDimensions: [
+    { key: 'technicalAccessibility', label: 'Technical Accessibility', score: 79, weight: 12, issueCount: 0, topIssues: [] },
+    {
+      key: 'visualClarityDesign',
+      label: 'Visual Clarity & Design',
+      score: 58,
+      weight: 40,
+      issueCount: 2,
+      topIssues: [
+        {
+          auditId: 'color-contrast',
+          title: 'Color contrast is too low',
+          description: 'Text contrast falls below the recommended threshold.',
+          score: 52,
+          weight: 9,
+          severity: 'high',
+          auditSourceType: 'wcag-aa',
+          auditSourceLabel: 'WCAG AA',
+          wcagCriteria: ['1.4.3'],
+          displayValue: '4.1:1',
+          sourceUrl: 'https://example.com/home',
+        },
+      ],
+    },
+    { key: 'cognitiveLoadComplexity', label: 'Cognitive Load & Complexity', score: 71, weight: 7, issueCount: 0, topIssues: [] },
+    { key: 'navigationArchitecture', label: 'Navigation & Information Architecture', score: 76, weight: 7, issueCount: 0, topIssues: [] },
+    { key: 'contentReadability', label: 'Content Readability & Plain Language', score: 77, weight: 15, issueCount: 0, topIssues: [] },
+    {
+      key: 'interactionForms',
+      label: 'Interaction & Forms',
+      score: 61,
+      weight: 12,
+      issueCount: 1,
+      topIssues: [
+        {
+          auditId: 'target-size',
+          title: 'Tap targets are too small',
+          description: 'Interactive controls are difficult to hit accurately.',
+          score: 61,
+          weight: 6,
+          severity: 'high',
+          auditSourceType: 'wcag-aa',
+          auditSourceLabel: 'WCAG AA',
+          wcagCriteria: ['2.5.8'],
+          sourceUrl: 'https://example.com/checkout',
+        },
+      ],
+    },
+    {
+      key: 'trustSecuritySignals',
+      label: 'Trust & Security Signals',
       score: 74,
       weight: 4,
       issueCount: 1,
@@ -63,17 +146,12 @@ const sampleScorecard = {
           score: 74,
           weight: 3,
           severity: 'medium',
+          auditSourceType: 'supporting-signal',
+          auditSourceLabel: 'Supporting Signal',
         },
       ],
     },
-    {
-      key: 'cognitiveLoad',
-      label: 'Cognitive Load',
-      score: 77,
-      weight: 5,
-      issueCount: 0,
-      topIssues: [],
-    },
+    { key: 'mobileOptimization', label: 'Mobile & Cross-Platform Optimization', score: 69, weight: 15, issueCount: 0, topIssues: [] },
   ],
   topIssues: [
     {
@@ -83,6 +161,9 @@ const sampleScorecard = {
       score: 52,
       weight: 9,
       severity: 'high',
+      auditSourceType: 'wcag-aa',
+      auditSourceLabel: 'WCAG AA',
+      wcagCriteria: ['1.4.3'],
       displayValue: '4.1:1',
       sourceUrl: 'https://example.com/home',
     },
@@ -93,6 +174,9 @@ const sampleScorecard = {
       score: 61,
       weight: 6,
       severity: 'high',
+      auditSourceType: 'wcag-aa',
+      auditSourceLabel: 'WCAG AA',
+      wcagCriteria: ['2.5.8'],
       sourceUrl: 'https://example.com/checkout',
     },
   ],
@@ -112,6 +196,22 @@ const sampleScorecard = {
   ],
 } as const;
 
+const sampleAiReport: AuditAiReport = {
+  status: 'generated',
+  provider: 'openai',
+  model: 'gpt-test-mini',
+  generatedAt: '2026-03-16T12:05:00.000Z',
+  headline: 'Meaningful friction remains in key older-adult journeys',
+  summary: 'The site shows a workable base, but readability and interaction friction are still likely reducing confidence and task completion.',
+  businessImpact: 'These issues can increase abandonment and reduce trust in important user journeys.',
+  prioritySummary: 'Start with medium-effort fixes that remove the most visible reading and interaction barriers.',
+  topRecommendations: [
+    'Improve contrast and typography hierarchy across critical pages.',
+    'Increase tap target sizing in core task flows.',
+  ],
+  stakeholderNote: 'Use this narrative to support prioritization, not as a compliance claim.',
+};
+
 test('buildRemediationRoadmap turns stored scorecard issues into prioritized Phase 1 roadmap items', () => {
   const roadmap = buildRemediationRoadmap(sampleScorecard);
 
@@ -119,10 +219,23 @@ test('buildRemediationRoadmap turns stored scorecard issues into prioritized Pha
   assert.equal(roadmap[0].auditId, 'color-contrast');
   assert.equal(roadmap[0].impact, 'high');
   assert.equal(roadmap[0].effort, 'medium');
+  assert.equal(roadmap[0].bucketKey, 'medium-effort');
+  assert.equal(roadmap[0].bucketLabel, 'Medium Effort');
+  assert.equal(roadmap[0].evaluationDimensionKey, 'visualClarityDesign');
+  assert.equal(roadmap[0].evaluationDimensionLabel, 'Visual Clarity & Design');
+  assert.equal(roadmap[0].auditSourceType, 'wcag-aa');
+  assert.equal(roadmap[0].auditSourceLabel, 'WCAG AA');
+  assert.deepEqual(roadmap[0].wcagCriteria, ['1.4.3']);
   assert.match(roadmap[0].action, /contrast/i);
 
   assert.equal(roadmap[1].auditId, 'target-size');
   assert.equal(roadmap[1].dimensionKey, 'motorAccessibility');
+  assert.equal(roadmap[1].evaluationDimensionKey, 'interactionForms');
+  assert.equal(roadmap[1].auditSourceLabel, 'WCAG AA');
+
+  assert.equal(roadmap[2].auditId, 'total-blocking-time');
+  assert.equal(roadmap[2].bucketKey, 'high-effort');
+  assert.equal(roadmap[2].auditSourceType, 'supporting-signal');
 });
 
 test('buildAnalysisDetail returns normalized scorecard-backed detail payload for account views', () => {
@@ -137,6 +250,7 @@ test('buildAnalysisDetail returns normalized scorecard-backed detail payload for
     device: 'desktop',
     score: 67.4,
     scoreCard: sampleScorecard,
+    aiReport: sampleAiReport,
     status: 'completed',
     emailStatus: 'sent',
     attachmentCount: 3,
@@ -161,8 +275,16 @@ test('buildAnalysisDetail returns normalized scorecard-backed detail payload for
   assert.equal(detail.riskTier, 'high');
   assert.equal(detail.scoreStatus, 'fail');
   assert.equal(detail.pageCount, 4);
+  assert.equal(detail.aiReport?.headline, sampleAiReport.headline);
+  assert.equal(detail.aiReport?.provider, 'openai');
   assert.equal(detail.dimensions.length, 4);
+  assert.equal(detail.evaluationDimensions.length, 8);
   assert.equal(detail.remediationRoadmap.length, 3);
+  assert.equal(detail.remediationBuckets.length, 2);
+  assert.equal(detail.remediationBuckets[0].key, 'medium-effort');
+  assert.equal(detail.remediationBuckets[0].itemCount, 2);
+  assert.equal(detail.remediationBuckets[1].key, 'high-effort');
+  assert.equal(detail.remediationBuckets[1].items[0].auditId, 'total-blocking-time');
   assert.equal(detail.reportDirectory, 'reports-full/example');
   assert.equal(detail.reportFiles.length, 1);
   assert.equal(detail.reportFiles[0].displayName, 'audit-summary.pdf');

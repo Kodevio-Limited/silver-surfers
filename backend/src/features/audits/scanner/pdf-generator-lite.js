@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import PDFDocument from 'pdfkit';
-import customConfigLite from './custom-config-lite.js';
+import { buildAuditScorecard } from '../audit-scorecard.ts';
 
 // Helper to get __dirname in ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -121,28 +121,8 @@ const PREMIUM_FEATURES = {
 
 // Function to calculate the lite score
 function calculateLiteScore(report) {
-    const categoryId = 'senior-friendly-lite';
-    const categoryConfig = customConfigLite.categories[categoryId];
-    if (!categoryConfig) {
-        return { finalScore: 0 };
-    }
-
-    const auditRefs = categoryConfig.auditRefs;
-    const auditResults = report.audits;
-
-    let totalWeightedScore = 0;
-    let totalWeight = 0;
-
-    for (const auditRef of auditRefs) {
-        const { id, weight } = auditRef;
-        const result = auditResults[id];
-        const score = result ? (result.score ?? 0) : 0;
-        totalWeightedScore += score * weight;
-        totalWeight += weight;
-    }
-
-    const finalScore = totalWeight === 0 ? 0 : (totalWeightedScore / totalWeight) * 100;
-    return { finalScore };
+    const scorecard = buildAuditScorecard(report, { isLiteVersion: true });
+    return { finalScore: scorecard.overallScore };
 }
 
 class LiteAccessibilityPDFGenerator {

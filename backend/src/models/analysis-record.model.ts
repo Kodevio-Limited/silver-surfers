@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-import { reportFileSchema, reportStorageSchema, scoreCardSchema } from './shared-schemas.ts';
+import { aiReportSchema, reportFileSchema, reportStorageSchema, scoreCardSchema } from './shared-schemas.ts';
 
 const analysisRecordSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true, required: false },
@@ -14,6 +14,7 @@ const analysisRecordSchema = new mongoose.Schema({
   device: { type: String, default: null },
   score: { type: Number, default: null },
   scoreCard: { type: scoreCardSchema, default: undefined },
+  aiReport: { type: aiReportSchema, default: undefined },
   status: { type: String, enum: ['queued', 'processing', 'completed', 'failed'], default: 'queued' },
   emailStatus: { type: String, enum: ['pending', 'sending', 'sent', 'failed'], default: 'pending' },
   reportDirectory: { type: String },

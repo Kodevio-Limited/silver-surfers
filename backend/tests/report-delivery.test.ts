@@ -6,13 +6,14 @@ import fs from 'node:fs/promises';
 
 import { buildAuditReportEmailBody, collectAttachmentsRecursive } from '../src/features/audits/report-delivery.ts';
 
-test('collectAttachmentsRecursive only returns PDFs and respects device filters', async () => {
+test('collectAttachmentsRecursive returns supported report artifacts and respects device filters', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'report-delivery-'));
 
   try {
     await fs.mkdir(path.join(tempDir, 'nested'));
     await fs.writeFile(path.join(tempDir, 'combined-desktop-report.pdf'), 'desktop');
     await fs.writeFile(path.join(tempDir, 'combined-mobile-report.pdf'), 'mobile');
+    await fs.writeFile(path.join(tempDir, 'ai-executive-summary-desktop.md'), 'summary');
     await fs.writeFile(path.join(tempDir, 'nested', 'summary-tablet.pdf'), 'tablet');
     await fs.writeFile(path.join(tempDir, 'notes.txt'), 'ignore me');
 
@@ -21,11 +22,16 @@ test('collectAttachmentsRecursive only returns PDFs and respects device filters'
 
     assert.deepEqual(
       desktopFiles.map((file) => file.filename).sort(),
-      ['combined-desktop-report.pdf'],
+      ['ai-executive-summary-desktop.md', 'combined-desktop-report.pdf'].sort(),
     );
     assert.deepEqual(
       allFiles.map((file) => file.filename).sort(),
-      ['combined-desktop-report.pdf', 'combined-mobile-report.pdf', path.join('nested', 'summary-tablet.pdf')].sort(),
+      [
+        'ai-executive-summary-desktop.md',
+        'combined-desktop-report.pdf',
+        'combined-mobile-report.pdf',
+        path.join('nested', 'summary-tablet.pdf'),
+      ].sort(),
     );
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

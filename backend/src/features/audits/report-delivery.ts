@@ -241,7 +241,9 @@ export async function collectAttachmentsRecursive(
         continue;
       }
 
-      if (!entry.isFile() || !fullPath.toLowerCase().endsWith('.pdf')) {
+      const lowerPath = fullPath.toLowerCase();
+      const isSupportedAttachment = lowerPath.endsWith('.pdf') || lowerPath.endsWith('.md');
+      if (!entry.isFile() || !isSupportedAttachment) {
         continue;
       }
 

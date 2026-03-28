@@ -5,6 +5,7 @@ import AnalysisRecord from '../../models/analysis-record.model.ts';
 import QuickScan from '../../models/quick-scan.model.ts';
 import Subscription from '../../models/subscription.model.ts';
 import User from '../../models/user.model.ts';
+import type { AuditAiReport } from './ai-reporting.ts';
 import type { AuditScorecard } from './audit-scorecard.ts';
 
 export interface SubscriptionDocument {
@@ -37,6 +38,7 @@ export interface AnalysisRecordDocument {
   device?: string | null;
   score?: number | null;
   scoreCard?: AuditScorecard;
+  aiReport?: AuditAiReport;
   status?: string;
   emailStatus?: string;
   emailAccepted?: string[];
@@ -71,6 +73,7 @@ export interface QuickScanDocument {
   scanDate?: Date;
   reportGenerated?: boolean;
   reportPath?: string | null;
+  aiReport?: AuditAiReport;
   reportStorage?: QueueReportStorage;
   reportFiles?: Array<{
     id?: string;

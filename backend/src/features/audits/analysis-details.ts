@@ -1,10 +1,14 @@
 import type { QueueReportStorage } from '../../infrastructure/queues/job-queue.ts';
 import type {
+  AuditAiReport,
   AuditDimensionKey,
   AuditDimensionScore,
+  AuditEvaluationDimensionKey,
+  AuditEvaluationDimensionScore,
   AuditIssueSummary,
   AuditPlatformScore,
   AuditRiskTier,
+  AuditIssueSourceType,
   AuditScorecard,
   AuditScoreStatus,
 } from './audit-scorecard.ts';
@@ -14,6 +18,7 @@ export type AnalysisStatus = 'queued' | 'processing' | 'completed' | 'failed';
 export type AnalysisEmailStatus = 'pending' | 'sending' | 'sent' | 'failed';
 export type RemediationImpact = 'high' | 'medium' | 'low';
 export type RemediationEffort = 'low' | 'medium' | 'high';
+export type RemediationBucketKey = 'quick-wins' | 'medium-effort' | 'high-effort';
 
 export interface AnalysisRecordLike {
   _id?: string;
@@ -26,6 +31,7 @@ export interface AnalysisRecordLike {
   device?: string | null;
   score?: number | null;
   scoreCard?: AuditScorecard;
+  aiReport?: AuditAiReport;
   status?: string;
   emailStatus?: string;
   attachmentCount?: number;
@@ -44,14 +50,29 @@ export interface AnalysisRemediationItem {
   title: string;
   dimensionKey: AuditDimensionKey;
   dimensionLabel: string;
+  evaluationDimensionKey?: AuditEvaluationDimensionKey;
+  evaluationDimensionLabel?: string;
   severity: AuditRiskTier;
   currentScore: number;
   impact: RemediationImpact;
   effort: RemediationEffort;
+  auditSourceType: AuditIssueSourceType;
+  auditSourceLabel: string;
+  wcagCriteria?: string[];
+  bucketKey: RemediationBucketKey;
+  bucketLabel: string;
   action: string;
   whyItMatters: string;
   displayValue?: string;
   sourceUrl?: string;
+}
+
+export interface AnalysisRemediationBucket {
+  key: RemediationBucketKey;
+  label: string;
+  description: string;
+  itemCount: number;
+  items: AnalysisRemediationItem[];
 }
 
 export interface AnalysisDetailView {
@@ -77,9 +98,12 @@ export interface AnalysisDetailView {
   reportStorage?: QueueReportStorage;
   reportFiles: AnalysisReportFileView[];
   scorecard?: AuditScorecard;
+  aiReport?: AuditAiReport;
   dimensions: AuditDimensionScore[];
+  evaluationDimensions: AuditEvaluationDimensionScore[];
   topIssues: AuditIssueSummary[];
   remediationRoadmap: AnalysisRemediationItem[];
+  remediationBuckets: AnalysisRemediationBucket[];
 }
 
 interface RemediationTemplate {
@@ -181,6 +205,21 @@ const REMEDIATION_TEMPLATES: Record<string, RemediationTemplate> = {
   },
 };
 
+const ROADMAP_BUCKETS: Record<RemediationBucketKey, { label: string; description: string }> = {
+  'quick-wins': {
+    label: 'Quick Wins',
+    description: 'Lower-effort improvements that can remove friction quickly and raise usability confidence fast.',
+  },
+  'medium-effort': {
+    label: 'Medium Effort',
+    description: 'Moderate implementation work with meaningful accessibility and usability payoff.',
+  },
+  'high-effort': {
+    label: 'High Effort',
+    description: 'Bigger redesign or engineering work that should be planned as a larger remediation phase.',
+  },
+};
+
 function normalizeDate(value: Date | string | undefined): string | undefined {
   if (!value) {
     return undefined;
@@ -208,6 +247,20 @@ function normalizeEmailStatus(value: string | undefined): AnalysisEmailStatus {
   }
 
   return 'pending';
+}
+
+function normalizeAiReport(report: AuditAiReport | undefined): AuditAiReport | undefined {
+  if (!report) {
+    return undefined;
+  }
+
+  return {
+    ...report,
+    generatedAt: normalizeDate(report.generatedAt) || new Date().toISOString(),
+    topRecommendations: Array.isArray(report.topRecommendations)
+      ? report.topRecommendations.map((item) => String(item || '').trim()).filter(Boolean)
+      : [],
+  };
 }
 
 function getImpact(issue: AuditIssueSummary): RemediationImpact {
@@ -242,6 +295,22 @@ function getTemplate(issue: AuditIssueSummary): RemediationTemplate {
   };
 }
 
+function getIssueIdentity(issue: Pick<AuditIssueSummary, 'auditId' | 'sourceUrl'>): string {
+  return `${issue.auditId}:${issue.sourceUrl || ''}`;
+}
+
+function getRemediationBucket(effort: RemediationEffort): RemediationBucketKey {
+  if (effort === 'low') {
+    return 'quick-wins';
+  }
+
+  if (effort === 'high') {
+    return 'high-effort';
+  }
+
+  return 'medium-effort';
+}
+
 function rankImpact(impact: RemediationImpact): number {
   if (impact === 'high') {
     return 0;
@@ -266,22 +335,55 @@ function rankEffort(effort: RemediationEffort): number {
   return 2;
 }
 
+function rankBucket(bucket: RemediationBucketKey): number {
+  if (bucket === 'quick-wins') {
+    return 0;
+  }
+
+  if (bucket === 'medium-effort') {
+    return 1;
+  }
+
+  return 2;
+}
+
+function buildEvaluationDimensionLookup(
+  scorecard: AuditScorecard | undefined,
+): Map<string, { key: AuditEvaluationDimensionKey; label: string }> {
+  const lookup = new Map<string, { key: AuditEvaluationDimensionKey; label: string }>();
+
+  for (const dimension of scorecard?.evaluationDimensions || []) {
+    for (const issue of dimension.topIssues || []) {
+      lookup.set(getIssueIdentity(issue), {
+        key: dimension.key,
+        label: dimension.label,
+      });
+    }
+  }
+
+  return lookup;
+}
+
 export function buildRemediationRoadmap(scorecard: AuditScorecard | undefined): AnalysisRemediationItem[] {
-  if (!scorecard?.dimensions?.length) {
+  const scoreDimensions = scorecard?.dimensions || [];
+  if (!scoreDimensions.length) {
     return [];
   }
 
   const items = new Map<string, AnalysisRemediationItem>();
+  const evaluationDimensionLookup = buildEvaluationDimensionLookup(scorecard);
 
-  for (const dimension of scorecard.dimensions) {
+  for (const dimension of scoreDimensions) {
     for (const issue of dimension.topIssues || []) {
-      const dedupeKey = `${dimension.key}:${issue.auditId}`;
+      const dedupeKey = getIssueIdentity(issue);
       if (items.has(dedupeKey)) {
         continue;
       }
 
       const template = getTemplate(issue);
       const impact = getImpact(issue);
+      const bucketKey = getRemediationBucket(template.effort);
+      const evaluationDimension = evaluationDimensionLookup.get(dedupeKey);
 
       items.set(dedupeKey, {
         id: dedupeKey,
@@ -289,10 +391,21 @@ export function buildRemediationRoadmap(scorecard: AuditScorecard | undefined): 
         title: issue.title,
         dimensionKey: dimension.key,
         dimensionLabel: dimension.label,
+        ...(evaluationDimension
+          ? {
+            evaluationDimensionKey: evaluationDimension.key,
+            evaluationDimensionLabel: evaluationDimension.label,
+          }
+          : {}),
         severity: issue.severity,
         currentScore: issue.score,
         impact,
         effort: template.effort,
+        auditSourceType: issue.auditSourceType,
+        auditSourceLabel: issue.auditSourceLabel,
+        ...(issue.wcagCriteria?.length ? { wcagCriteria: issue.wcagCriteria } : {}),
+        bucketKey,
+        bucketLabel: ROADMAP_BUCKETS[bucketKey].label,
         action: template.action,
         whyItMatters: template.whyItMatters,
         ...(issue.displayValue ? { displayValue: issue.displayValue } : {}),
@@ -303,6 +416,10 @@ export function buildRemediationRoadmap(scorecard: AuditScorecard | undefined): 
 
   return [...items.values()]
     .sort((left, right) => {
+      if (rankBucket(left.bucketKey) !== rankBucket(right.bucketKey)) {
+        return rankBucket(left.bucketKey) - rankBucket(right.bucketKey);
+      }
+
       if (rankImpact(left.impact) !== rankImpact(right.impact)) {
         return rankImpact(left.impact) - rankImpact(right.impact);
       }
@@ -316,10 +433,36 @@ export function buildRemediationRoadmap(scorecard: AuditScorecard | undefined): 
     .slice(0, 8);
 }
 
+export function buildRemediationBuckets(items: AnalysisRemediationItem[]): AnalysisRemediationBucket[] {
+  return (Object.keys(ROADMAP_BUCKETS) as RemediationBucketKey[])
+    .map((bucketKey) => {
+      const bucketItems = items
+        .filter((item) => item.bucketKey === bucketKey)
+        .sort((left, right) => {
+          if (rankImpact(left.impact) !== rankImpact(right.impact)) {
+            return rankImpact(left.impact) - rankImpact(right.impact);
+          }
+
+          return left.currentScore - right.currentScore;
+        });
+
+      return {
+        key: bucketKey,
+        label: ROADMAP_BUCKETS[bucketKey].label,
+        description: ROADMAP_BUCKETS[bucketKey].description,
+        itemCount: bucketItems.length,
+        items: bucketItems,
+      };
+    })
+    .filter((bucket) => bucket.itemCount > 0);
+}
+
 export function buildAnalysisDetail(record: AnalysisRecordLike): AnalysisDetailView {
   const fullName = [record.firstName, record.lastName].filter(Boolean).join(' ').trim() || undefined;
   const scorecard = record.scoreCard;
+  const aiReport = normalizeAiReport(record.aiReport);
   const normalizedReportFiles = buildAnalysisReportFileViews(normalizeStoredReportFiles((record.reportFiles || []) as StoredReportFile[]));
+  const remediationRoadmap = buildRemediationRoadmap(scorecard);
 
   return {
     ...(record._id ? { id: String(record._id) } : {}),
@@ -344,8 +487,11 @@ export function buildAnalysisDetail(record: AnalysisRecordLike): AnalysisDetailV
     ...(record.reportStorage ? { reportStorage: record.reportStorage } : {}),
     reportFiles: normalizedReportFiles,
     ...(scorecard ? { scorecard } : {}),
+    ...(aiReport ? { aiReport } : {}),
     dimensions: scorecard?.dimensions || [],
+    evaluationDimensions: scorecard?.evaluationDimensions || [],
     topIssues: scorecard?.topIssues || [],
-    remediationRoadmap: buildRemediationRoadmap(scorecard),
+    remediationRoadmap,
+    remediationBuckets: buildRemediationBuckets(remediationRoadmap),
   };
 }

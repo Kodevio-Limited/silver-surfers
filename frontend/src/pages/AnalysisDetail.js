@@ -51,6 +51,97 @@ function getStatusTone(value) {
   return 'gray';
 }
 
+function getPriorityTone(value) {
+  if (value === 'high') {
+    return 'red';
+  }
+
+  if (value === 'medium') {
+    return 'yellow';
+  }
+
+  if (value === 'low') {
+    return 'green';
+  }
+
+  return 'gray';
+}
+
+function getBucketTone(value) {
+  if (value === 'quick-wins') {
+    return 'green';
+  }
+
+  if (value === 'medium-effort') {
+    return 'yellow';
+  }
+
+  if (value === 'high-effort') {
+    return 'red';
+  }
+
+  return 'gray';
+}
+
+function buildFallbackRemediationBuckets(roadmap) {
+  const bucketOrder = [
+    {
+      key: 'quick-wins',
+      label: 'Quick Wins',
+      description: 'Lower-effort improvements that can remove friction quickly and raise usability confidence fast.',
+    },
+    {
+      key: 'medium-effort',
+      label: 'Medium Effort',
+      description: 'Moderate implementation work with meaningful accessibility and usability payoff.',
+    },
+    {
+      key: 'high-effort',
+      label: 'High Effort',
+      description: 'Bigger redesign or engineering work that should be planned as a larger remediation phase.',
+    },
+  ];
+
+  return bucketOrder
+    .map((bucket) => {
+      const items = roadmap.filter((item) => item.bucketKey === bucket.key);
+      return {
+        ...bucket,
+        items,
+        itemCount: items.length,
+      };
+    })
+    .filter((bucket) => bucket.itemCount > 0);
+}
+
+function renderAuditMetadata(issue) {
+  const badges = [];
+
+  if (issue?.auditSourceLabel) {
+    badges.push(
+      <ScoreBadge key={`${issue.auditId || issue.id}-source`} value={issue.auditSourceLabel} tone="gray" />,
+    );
+  }
+
+  if (Array.isArray(issue?.wcagCriteria)) {
+    issue.wcagCriteria.forEach((criterion) => {
+      badges.push(
+        <ScoreBadge key={`${issue.auditId || issue.id}-wcag-${criterion}`} value={`WCAG ${criterion}`} tone="gray" />,
+      );
+    });
+  }
+
+  return badges;
+}
+
+function getInlineActionLabel(reportFile) {
+  return reportFile?.hasPreview ? 'View PDF' : 'Open File';
+}
+
+function getDownloadActionLabel(reportFile) {
+  return reportFile?.hasPreview ? 'Download PDF' : 'Download File';
+}
+
 function StatCard({ label, value, help }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
@@ -99,8 +190,14 @@ export default function AnalysisDetail() {
   }, [taskId]);
 
   const dimensions = item?.dimensions || [];
+  const evaluationDimensions = item?.evaluationDimensions || item?.scorecard?.evaluationDimensions || [];
   const topIssues = item?.topIssues || [];
   const roadmap = item?.remediationRoadmap || [];
+  const remediationBuckets =
+    item?.remediationBuckets?.length
+      ? item.remediationBuckets
+      : buildFallbackRemediationBuckets(roadmap);
+  const aiReport = item?.aiReport || null;
   const reportFiles = item?.reportFiles || [];
 
   const handleReportAction = async (reportFile, disposition) => {
@@ -226,14 +323,14 @@ export default function AnalysisDetail() {
                           disabled={reportAction === `${reportFile.id}:inline`}
                           className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {reportAction === `${reportFile.id}:inline` ? 'Opening...' : 'View PDF'}
+                          {reportAction === `${reportFile.id}:inline` ? 'Opening...' : getInlineActionLabel(reportFile)}
                         </button>
                         <button
                           onClick={() => handleReportAction(reportFile, 'attachment')}
                           disabled={reportAction === `${reportFile.id}:attachment`}
                           className="rounded-lg bg-emerald-600/80 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {reportAction === `${reportFile.id}:attachment` ? 'Downloading...' : 'Download PDF'}
+                          {reportAction === `${reportFile.id}:attachment` ? 'Downloading...' : getDownloadActionLabel(reportFile)}
                         </button>
                       </div>
                     </div>
@@ -243,10 +340,68 @@ export default function AnalysisDetail() {
             </section>
 
             <section className="rounded-2xl border border-white/10 bg-black/20 p-6">
+              <div className="mb-5">
+                <h2 className="text-2xl font-bold">AI Executive Summary</h2>
+                <p className="mt-1 text-sm text-gray-300">Business-friendly narrative generated from the stored scorecard and remediation roadmap.</p>
+              </div>
+              {!aiReport ? (
+                <p className="text-sm text-gray-400">No AI summary is available for this analysis yet.</p>
+              ) : (
+                <div className="space-y-5">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-lg font-semibold text-white">{aiReport.headline}</p>
+                      <ScoreBadge value={aiReport.provider} tone={aiReport.provider === 'openai' ? 'blue' : 'gray'} />
+                      <ScoreBadge value={aiReport.status} tone={aiReport.status === 'generated' ? 'green' : 'yellow'} />
+                      {aiReport.model ? <ScoreBadge value={aiReport.model} tone="gray" /> : null}
+                    </div>
+                    <p className="mt-3 text-sm text-gray-200">{aiReport.summary}</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                      <h3 className="text-lg font-semibold text-white">Business Impact</h3>
+                      <p className="mt-3 text-sm text-gray-300">{aiReport.businessImpact}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                      <h3 className="text-lg font-semibold text-white">Priority Summary</h3>
+                      <p className="mt-3 text-sm text-gray-300">{aiReport.prioritySummary}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                    <h3 className="text-lg font-semibold text-white">Top Recommendations</h3>
+                    {Array.isArray(aiReport.topRecommendations) && aiReport.topRecommendations.length > 0 ? (
+                      <div className="mt-4 space-y-3">
+                        {aiReport.topRecommendations.map((recommendation, index) => (
+                          <div key={`${index}-${recommendation}`} className="rounded-xl border border-white/10 bg-black/20 p-4">
+                            <div className="flex items-start gap-3">
+                              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-200">
+                                {index + 1}
+                              </span>
+                              <p className="text-sm text-gray-200">{recommendation}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-gray-400">No AI recommendations are available yet.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                    <h3 className="text-lg font-semibold text-white">Stakeholder Note</h3>
+                    <p className="mt-3 text-sm text-gray-300">{aiReport.stakeholderNote}</p>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-white/10 bg-black/20 p-6">
               <div className="mb-5 flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-bold">Dimension Breakdown</h2>
-                  <p className="mt-1 text-sm text-gray-300">The first Phase 1 score view across the four primary Silver Score dimensions.</p>
+                  <h2 className="text-2xl font-bold">Primary Score Categories</h2>
+                  <p className="mt-1 text-sm text-gray-300">The four weighted Silver Score categories generated from the eight evaluation dimensions.</p>
                 </div>
               </div>
               {dimensions.length === 0 ? (
@@ -286,6 +441,48 @@ export default function AnalysisDetail() {
               )}
             </section>
 
+            <section className="rounded-2xl border border-white/10 bg-black/20 p-6">
+              <div className="mb-5">
+                <h2 className="text-2xl font-bold">Eight Evaluation Dimensions</h2>
+                <p className="mt-1 text-sm text-gray-300">These dimensions capture the underlying Silver Web evaluation model used to build the weighted score categories.</p>
+              </div>
+              {evaluationDimensions.length === 0 ? (
+                <p className="text-sm text-gray-400">This analysis does not include evaluation-dimension data yet.</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {evaluationDimensions.map((dimension) => (
+                    <div key={dimension.key} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-gray-400">{dimension.label}</p>
+                          <p className="mt-2 text-3xl font-bold text-white">{Math.round(dimension.score)}%</p>
+                        </div>
+                        <div className="text-right text-sm text-gray-300">
+                          <p>{dimension.issueCount} issues</p>
+                          <p className="mt-1">Coverage {dimension.weight}</p>
+                        </div>
+                      </div>
+                      {dimension.topIssues?.length ? (
+                        <div className="mt-4 space-y-2">
+                          {dimension.topIssues.map((issue) => (
+                            <div key={`${dimension.key}-${issue.auditId}`} className="rounded-xl border border-white/5 bg-black/20 p-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-medium text-white">{issue.title}</p>
+                                <ScoreBadge value={issue.severity} tone={getRiskTone(issue.severity)} />
+                              </div>
+                              <p className="mt-1 text-sm text-gray-300">{issue.description}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-4 text-sm text-gray-400">No top issues recorded for this evaluation dimension.</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
             <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-black/20 p-6">
                 <h2 className="text-2xl font-bold">Top Issues</h2>
@@ -299,6 +496,7 @@ export default function AnalysisDetail() {
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-semibold text-white">{issue.title}</p>
                           <ScoreBadge value={issue.severity} tone={getRiskTone(issue.severity)} />
+                          {renderAuditMetadata(issue)}
                           <span className="text-xs text-gray-400">Score {Math.round(issue.score)}%</span>
                         </div>
                         <p className="mt-2 text-sm text-gray-300">{issue.description}</p>
@@ -311,25 +509,47 @@ export default function AnalysisDetail() {
 
               <div className="rounded-2xl border border-white/10 bg-black/20 p-6">
                 <h2 className="text-2xl font-bold">Remediation Roadmap</h2>
-                <p className="mt-1 text-sm text-gray-300">First-pass Phase 1 roadmap generated from the stored scorecard.</p>
-                {roadmap.length === 0 ? (
+                <p className="mt-1 text-sm text-gray-300">Phase 1 remediation plan grouped into Quick Wins, Medium Effort, and High Effort workstreams.</p>
+                {remediationBuckets.length === 0 ? (
                   <p className="mt-5 text-sm text-gray-400">No remediation roadmap available yet.</p>
                 ) : (
-                  <div className="mt-5 space-y-3">
-                    {roadmap.map((itemRow, index) => (
-                      <div key={itemRow.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs uppercase tracking-[0.2em] text-gray-500">#{index + 1}</span>
-                          <p className="font-semibold text-white">{itemRow.title}</p>
+                  <div className="mt-5 space-y-5">
+                    {remediationBuckets.map((bucket) => (
+                      <div key={bucket.key} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-lg font-semibold text-white">{bucket.label}</h3>
+                              <ScoreBadge value={`${bucket.itemCount} items`} tone={getBucketTone(bucket.key)} />
+                            </div>
+                            <p className="mt-2 text-sm text-gray-300">{bucket.description}</p>
+                          </div>
                         </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <ScoreBadge value={`${itemRow.impact} impact`} tone={itemRow.impact === 'high' ? 'red' : itemRow.impact === 'medium' ? 'yellow' : 'green'} />
-                          <ScoreBadge value={`${itemRow.effort} effort`} tone={itemRow.effort === 'high' ? 'red' : itemRow.effort === 'medium' ? 'yellow' : 'green'} />
-                          <ScoreBadge value={itemRow.dimensionLabel} tone="blue" />
+
+                        <div className="mt-4 space-y-3">
+                          {bucket.items.map((itemRow, index) => (
+                            <div key={itemRow.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs uppercase tracking-[0.2em] text-gray-500">
+                                  {bucket.label} #{index + 1}
+                                </span>
+                                <p className="font-semibold text-white">{itemRow.title}</p>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <ScoreBadge value={`${itemRow.impact} impact`} tone={getPriorityTone(itemRow.impact)} />
+                                <ScoreBadge value={`${itemRow.effort} effort`} tone={getPriorityTone(itemRow.effort)} />
+                                <ScoreBadge value={itemRow.dimensionLabel} tone="blue" />
+                                {itemRow.evaluationDimensionLabel ? (
+                                  <ScoreBadge value={itemRow.evaluationDimensionLabel} tone="gray" />
+                                ) : null}
+                                {renderAuditMetadata(itemRow)}
+                              </div>
+                              <p className="mt-3 text-sm text-gray-200">{itemRow.action}</p>
+                              <p className="mt-2 text-sm text-gray-400">{itemRow.whyItMatters}</p>
+                              {itemRow.sourceUrl ? <p className="mt-2 break-all text-xs text-gray-500">Source page: {itemRow.sourceUrl}</p> : null}
+                            </div>
+                          ))}
                         </div>
-                        <p className="mt-3 text-sm text-gray-200">{itemRow.action}</p>
-                        <p className="mt-2 text-sm text-gray-400">{itemRow.whyItMatters}</p>
-                        {itemRow.sourceUrl ? <p className="mt-2 break-all text-xs text-gray-500">Source page: {itemRow.sourceUrl}</p> : null}
                       </div>
                     ))}
                   </div>

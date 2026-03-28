@@ -24,6 +24,20 @@ test('buildStoredReportFilesFromAttachments persists local relative paths and pd
   assert.equal(files[0].contentType, 'application/pdf');
 });
 
+test('buildStoredReportFilesFromAttachments detects markdown executive summaries', () => {
+  const files = buildStoredReportFilesFromAttachments([
+    {
+      filename: 'ai-executive-summary.md',
+      path: '/tmp/reports/ai-executive-summary.md',
+      size: 512,
+      sizeMB: '0.00',
+    },
+  ]);
+
+  assert.equal(files.length, 1);
+  assert.equal(files[0].contentType, 'text/markdown; charset=utf-8');
+});
+
 test('mergeStoredReportFilesWithStorage enriches persisted files with storage keys and urls', () => {
   const localFiles = buildStoredReportFilesFromAttachments([
     {

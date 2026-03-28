@@ -3,6 +3,9 @@ import path from 'node:path';
 
 import { extractInternalLinks } from './internal-links.ts';
 import { runLighthouseAudit } from './scanner/audit-service.ts';
+import { buildAuditAiReportMarkdown, generateAuditAiReport } from './ai-reporting.ts';
+import { buildRemediationRoadmap } from './analysis-details.ts';
+import { env } from '../../config/env.ts';
 import { logger } from '../../config/logger.ts';
 import { resolveBackendPath } from '../../config/paths.ts';
 import type { QueueJobInput, QueueResult } from '../../infrastructure/queues/job-queue.ts';
@@ -197,9 +200,16 @@ async function findOrCreateAnalysisRecord(job: FullAuditJobPayload, planId: stri
 }
 
 async function extractLinksToAudit(url: string): Promise<string[]> {
+  const crawlerOptions = {
+    maxLinks: env.fullAuditMaxPages,
+    maxDepth: env.fullAuditMaxDepth,
+    delayMs: env.fullAuditCrawlDelayMs,
+    timeout: env.fullAuditCrawlTimeoutMs,
+    maxRetries: env.fullAuditCrawlMaxRetries,
+  };
+
   const extractionResult = await extractInternalLinks(url, {
-    maxLinks: 25,
-    maxDepth: 1,
+    ...crawlerOptions,
   });
 
   if (!extractionResult.success) {
@@ -564,6 +574,13 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
       taskId: effectiveTaskId,
       pageCount: linksToAudit.length,
       devices: devicesToAudit,
+      crawlScope: {
+        maxPages: env.fullAuditMaxPages,
+        maxDepth: env.fullAuditMaxDepth,
+        delayMs: env.fullAuditCrawlDelayMs,
+        timeoutMs: env.fullAuditCrawlTimeoutMs,
+        maxRetries: env.fullAuditCrawlMaxRetries,
+      },
     });
 
     for (const link of linksToAudit) {
@@ -592,6 +609,40 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
 
     await generatePlatformReports(reportsByPlatform, job.email, effectivePlanId, finalReportFolder);
     await persistAggregateScorecard(record, reportsByPlatform);
+
+    if (record.scoreCard) {
+      const remediationRoadmap = buildRemediationRoadmap(record.scoreCard);
+      const aiReport = await generateAuditAiReport({
+        url: job.url,
+        fullName,
+        scorecard: record.scoreCard,
+        remediationRoadmap,
+      });
+
+      record.aiReport = aiReport;
+
+      const aiSummaryFilename = effectivePlanId === 'pro' || !job.selectedDevice
+        ? 'ai-executive-summary.md'
+        : `ai-executive-summary-${job.selectedDevice}.md`;
+
+      await fs.writeFile(
+        path.join(finalReportFolder, aiSummaryFilename),
+        buildAuditAiReportMarkdown(aiReport, { url: job.url }),
+        'utf8',
+      ).catch((error) => {
+        fullAuditLogger.warn('Failed to write AI executive summary markdown.', {
+          taskId: effectiveTaskId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+      await record.save().catch((error) => {
+        fullAuditLogger.warn('Failed to persist AI executive summary on analysis record.', {
+          taskId: effectiveTaskId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
 
     const platformSummary = buildPlatformSummary(reportsByPlatform);
     if (platformSummary.length > 0) {
