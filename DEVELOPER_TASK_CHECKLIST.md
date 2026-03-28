@@ -106,7 +106,7 @@ This checklist is based on the current repository and the scope comparison in `P
 
 - Decide whether Milestone 1 should use a 4-dimension score model or an 8-dimension score model
 - Decide whether Milestone 1 requires OpenAI-driven explanations or whether rule-based reporting is acceptable for now
-- Decide whether Milestone 1 requires paid axe DevTools integration or whether open-source axe/Lighthouse-based implementation is approved
+- Confirm that Milestone 1 is officially using `axe-core + Lighthouse + custom audits`, and only add paid axe DevTools later if enterprise workflow features are required
 - Decide whether the multi-page scanner must support up to 500 pages in Milestone 1 or in a later phase
 
 ### M1 completion tasks
@@ -119,6 +119,7 @@ This checklist is based on the current repository and the scope comparison in `P
 - Add enterprise-grade issue grouping and business-impact presentation if required for M1 acceptance
 - Expand crawler depth and limits if 500-page scanning is required
 - Improve PDF report narrative quality to the final accepted Milestone 1 standard
+- Update scope and client-facing language so it does not promise paid axe DevTools unless that is actually being purchased
 - Validate email service configuration for production
 - Confirm scanner infrastructure configuration for production deployments
 
@@ -163,7 +164,7 @@ This checklist is based on the current repository and the scope comparison in `P
 
 1. Lock M1 scope decisions
 2. Finalize score model shape
-3. Finalize audit stack choice: paid axe DevTools vs approved open-source stack
+3. Finalize and document the approved audit stack: `axe-core + Lighthouse + custom audits`
 4. Add OpenAI reporting layer if required
 5. Upgrade prioritization output
 6. Expand crawler only if required for M1

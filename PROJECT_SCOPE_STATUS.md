@@ -32,7 +32,6 @@ The platform does **not** yet fully match the Milestone 1 wording you provided.
 The biggest gaps are:
 
 - no OpenAI integration is present yet
-- no licensed axe DevTools API integration is present yet
 - current score model is **4 dimensions**, not the requested **8 dimensions**
 - crawler depth is limited to roughly **25 internal links**, not **500 pages**
 - prioritization exists, but not yet as a clear Quick Wins / Medium Effort / High Effort engine
@@ -98,7 +97,7 @@ What is done:
 
 What is missing or different:
 
-- repository evidence shows Lighthouse and custom audits, but not a direct licensed `axe DevTools API` integration
+- repository evidence supports an open-source accessibility stack built around Lighthouse and `axe-core`-backed auditing behavior, not a paid `axe DevTools API` integration
 - the current multi-page scan flow extracts internal links with `maxLinks: 25` and `maxDepth: 1`, not 500 pages
 
 Code evidence:
@@ -153,7 +152,7 @@ What is done:
 
 What is missing or unclear:
 
-- no dedicated paid `axe DevTools API` integration is present
+- no separate enterprise accessibility governance layer is present
 - no explicit standalone WCAG 2.2 AA mapping engine is visible as a separate product layer
 - the proprietary aging heuristic exists in spirit through custom audits, but not as a clearly separated engine
 
@@ -325,13 +324,14 @@ Meaning:
 
 ### 2. axe DevTools API Access
 
-Status: `Not currently integrated`
+Status: `Optional, not required for M1`
 
 Meaning:
 
-- current implementation appears to rely on Lighthouse plus open-source accessibility logic
-- if you want the paid axe DevTools API specifically, that work still needs to be added
-- if Milestone 1 is allowed to use open-source axe/Lighthouse-based auditing, the current system is closer to acceptable
+- current implementation is suitable for an `axe-core + Lighthouse + custom-audit` Milestone 1 direction
+- if you want the paid axe DevTools API specifically, that is still future work
+- paid axe DevTools is most useful for enterprise workflow features such as guided testing, shared reporting, governance, and broader team tooling
+- for the current SilverSurfers Milestone 1 scope, `axe-core` is sufficient unless the contract explicitly names the paid Deque product
 
 ### 3. Email Service
 
@@ -449,7 +449,7 @@ Not found as active platform capabilities:
 
 1. Decide whether Milestone 1 uses a **4-dimension** or **8-dimension** score model.
 2. Add the OpenAI reporting layer if AI-generated explanations are truly in scope.
-3. Decide whether open-source accessibility scanning is acceptable or whether axe DevTools paid API must be added.
+3. Align the written scope so it clearly says `axe-core / Lighthouse-based accessibility engine` unless the paid axe DevTools product is contractually required.
 4. Expand crawler depth if the requirement is truly up to 500 pages.
 5. Upgrade the remediation roadmap into clear named buckets:
    - Quick Wins
@@ -475,7 +475,7 @@ If the goal is to close Milestone 1 realistically, the most practical order is:
 1. Lock the Milestone 1 definition
    Decide 4-dimension vs 8-dimension scoring and whether OpenAI is truly required in M1.
 2. Lock the audit stack
-   Decide `open-source axe/Lighthouse` vs `paid axe DevTools API`.
+   Keep `open-source axe-core/Lighthouse` for M1 unless paid enterprise workflow tooling is explicitly required.
 3. Implement OpenAI reporting
    Only if AI-generated explanation is part of the signed scope.
 4. Improve roadmap output
