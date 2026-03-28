@@ -66,5 +66,7 @@ coverage/
 
 # Documentation
 *.md
+!PROJECT_SCOPE_STATUS.md
+!DEVELOPER_TASK_CHECKLIST.md
 !backend/README.md
 !frontend/README.md
