@@ -168,6 +168,11 @@ const AUDIT_EVALUATION_DIMENSION_MAP: Record<string, AuditEvaluationDimensionKey
   'total-blocking-time': 'cognitiveLoadComplexity',
   'is-on-https': 'trustSecuritySignals',
   'geolocation-on-start': 'trustSecuritySignals',
+  'image-alt': 'technicalAccessibility',
+  'focus-traps': 'technicalAccessibility',
+  'bypass': 'navigationArchitecture',
+  'line-spacing-audit': 'visualClarityDesign',
+  'autoplay-audit': 'cognitiveLoadComplexity',
 };
 
 const PRIMARY_DIMENSION_CONTRIBUTORS: Record<AuditPrimaryDimensionKey, AuditEvaluationDimensionKey[]> = {
@@ -225,6 +230,29 @@ const AUDIT_METADATA: Record<string, AuditIssueMetadata> = {
     auditSourceLabel: 'Aging Heuristic',
   },
   'geolocation-on-start': {
+    auditSourceType: 'aging-heuristic',
+    auditSourceLabel: 'Aging Heuristic',
+  },
+  'image-alt': {
+    auditSourceType: 'wcag-aa',
+    auditSourceLabel: 'WCAG AA',
+    wcagCriteria: ['1.1.1'],
+  },
+  'focus-traps': {
+    auditSourceType: 'wcag-aa',
+    auditSourceLabel: 'WCAG AA',
+    wcagCriteria: ['2.1.2'],
+  },
+  'bypass': {
+    auditSourceType: 'wcag-aa',
+    auditSourceLabel: 'WCAG AA',
+    wcagCriteria: ['2.4.1'],
+  },
+  'line-spacing-audit': {
+    auditSourceType: 'aging-heuristic',
+    auditSourceLabel: 'Aging Heuristic',
+  },
+  'autoplay-audit': {
     auditSourceType: 'aging-heuristic',
     auditSourceLabel: 'Aging Heuristic',
   },

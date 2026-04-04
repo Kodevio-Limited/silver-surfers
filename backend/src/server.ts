@@ -4,7 +4,10 @@ import { createApp } from './app/create-app.ts';
 import { env } from './config/env.ts';
 import { logger } from './config/logger.ts';
 import { initializeApiRuntime, registerServerShutdownHooks } from './server/runtime.ts';
+import dns from 'dns';
 
+// Ensure DNS resolution is working before starting the server
+dns.setServers(['1.1.1.1', '8.8.8.8']);
 const serverLogger = logger.child('server');
 
 const runtime = await initializeApiRuntime();

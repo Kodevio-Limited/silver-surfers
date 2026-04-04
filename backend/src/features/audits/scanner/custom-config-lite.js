@@ -36,6 +36,7 @@ export default {
         { id: 'is-on-https', weight: 2 },
         { id: 'largest-contentful-paint', weight: 1 },
         { id: 'cumulative-layout-shift', weight: 1 },
+        { id: 'image-alt', weight: 3 },
       ],
     },
   },

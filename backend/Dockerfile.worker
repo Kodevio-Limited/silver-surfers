@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ────────────────────────────────────────────────────────────────
-# Stage 1: deps — install production node_modules only
+# Stage 1: deps
 # ────────────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS deps
 
@@ -11,7 +11,10 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # ────────────────────────────────────────────────────────────────
-# Stage 2: final — API server (no browser required)
+# Stage 2: worker — background job processor
+# The worker dispatches audit jobs to the scanner service over HTTP,
+# so it does NOT need a local Chromium. It still needs the full
+# node_modules (BullMQ, Mongoose, PDF generation, OpenAI, etc.)
 # ────────────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS final
 
@@ -20,13 +23,11 @@ ENV NODE_ENV=production \
 
 WORKDIR /usr/src/app
 
-# Minimal OS deps (no Chromium — that lives in the scanner/worker images)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     dumb-init \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy pre-built node_modules and source
 COPY --from=deps /usr/src/app/node_modules ./node_modules
 COPY . .
 
@@ -34,9 +35,7 @@ RUN chown -R node:node /usr/src/app
 
 USER node
 
-# API server listens on PORT (default 8000); override via env
-EXPOSE 8000
-
-# dumb-init ensures clean signal handling (SIGTERM → graceful shutdown)
+# Worker does not expose an HTTP port — it connects outbound to
+# Redis (BullMQ) and the scanner service.
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "--import", "./scripts/register-typescript-loader.mjs", "src/server.ts"]
+CMD ["node", "--import", "./scripts/register-typescript-loader.mjs", "src/worker.ts"]

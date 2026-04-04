@@ -47,6 +47,7 @@ function collectPageText() {
       results.push({
         text: text.substring(0, 100),
         fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
         top: Math.round(rect.top),
         left: Math.round(rect.left),
         width: Math.round(rect.width),

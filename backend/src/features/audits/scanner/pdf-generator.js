@@ -884,7 +884,30 @@ addOverallScoreDisplay(scoreData) {
                 this.margin, this.currentY, { width: this.pageWidth, lineGap: 2 });
         this.currentY += 40;
 
-        const roadmap = buildRemediationRoadmap(buildAuditScorecard(reportData));
+        const scorecard = buildAuditScorecard(reportData);
+        const roadmap = buildRemediationRoadmap(scorecard);
+
+        // Certification eligibility banner
+        if (scorecard && typeof scorecard.overallScore === 'number') {
+            const score = Math.round(scorecard.overallScore);
+            const certEligible = score >= 80;
+            const certConditional = score >= 70 && score < 80;
+            const bannerColor = certEligible ? '#10B981' : certConditional ? '#F59E0B' : '#6B7280';
+            const bannerText = certEligible
+                ? `Silver Certified™ Eligible — Score of ${score} meets the 80-point threshold`
+                : certConditional
+                    ? `Conditional — Score of ${score} is ${80 - score} points below Silver Certified threshold`
+                    : `Not Eligible — Score of ${score} is ${80 - score} points below the Silver Certified threshold`;
+
+            this.checkPageBreak(50);
+            this.doc.rect(this.margin, this.currentY, this.pageWidth, 36)
+                .fill(bannerColor);
+            this.doc.fontSize(11).font('BoldFont').fillColor('#FFFFFF')
+                .text(`Certification Status: ${bannerText}`, this.margin + 12, this.currentY + 11, {
+                    width: this.pageWidth - 24,
+                });
+            this.currentY += 48;
+        }
 
         if (roadmap.length === 0) {
             this.doc.fontSize(11).font('RegularFont').fillColor('#4B5563')
@@ -977,6 +1000,35 @@ addOverallScoreDisplay(scoreData) {
             this.doc.fontSize(9).font('RegularFont').fillColor('#6B7280')
                 .text(sourceText, this.margin, this.currentY, { width: this.pageWidth, lineGap: 1 });
             this.currentY += sourceHeight + 8;
+        }
+
+        // Code snippet block (implementation example)
+        if (item.codeSnippet) {
+            const snippetPadding = 8;
+            const snippetFontSize = 8.5;
+            this.doc.fontSize(snippetFontSize);
+            const snippetTextWidth = this.pageWidth - (snippetPadding * 2);
+            const snippetTextHeight = this.doc.heightOfString(item.codeSnippet, { width: snippetTextWidth, lineGap: 1.5 });
+            const snippetBlockHeight = snippetTextHeight + (snippetPadding * 2) + 18; // 18 for label
+
+            this.checkPageBreak(snippetBlockHeight + 12);
+
+            // Label
+            this.doc.fontSize(8.5).font('BoldFont').fillColor('#6B7280')
+                .text('IMPLEMENTATION SNIPPET', this.margin, this.currentY);
+            this.currentY += 14;
+
+            // Dark code block background
+            this.doc.rect(this.margin, this.currentY, this.pageWidth, snippetTextHeight + (snippetPadding * 2))
+                .fill('#1E1E2E');
+
+            // Code text in monospace (Courier is the closest PDFKit built-in)
+            this.doc.fontSize(snippetFontSize).font('Courier').fillColor('#E2E8F0')
+                .text(item.codeSnippet, this.margin + snippetPadding, this.currentY + snippetPadding, {
+                    width: snippetTextWidth,
+                    lineGap: 1.5,
+                });
+            this.currentY += snippetTextHeight + (snippetPadding * 2) + 12;
         }
 
         this.currentY += 10;

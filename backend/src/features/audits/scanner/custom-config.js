@@ -19,6 +19,7 @@ export default {
     { id: 'PageLinkColors', gatherer: path.resolve(__dirname, 'gatherers/color-gatherer.js') },
     { id: 'BrittleLayoutElements', gatherer: path.resolve(__dirname, 'gatherers/layout-gatherer.js') },
     { id: 'PageContentGatherer', gatherer: path.resolve(__dirname, 'gatherers/page-content-gatherer.js') },
+    { id: 'AutoplayMedia', gatherer: path.resolve(__dirname, 'gatherers/autoplay-gatherer.js') },
   ],
 
   audits: [
@@ -26,6 +27,8 @@ export default {
     { path: path.resolve(__dirname, 'audits/color-audit.js') },
     { path: path.resolve(__dirname, 'audits/layout-audit.js') },
     { path: path.resolve(__dirname, 'audits/flesch-kincaid-audit.js') },
+    { path: path.resolve(__dirname, 'audits/line-spacing-audit.js') },
+    { path: path.resolve(__dirname, 'audits/autoplay-audit.js') },
   ],
 
   categories: {
@@ -51,6 +54,11 @@ export default {
         { id: 'heading-order', weight: 2 },
         { id: 'errors-in-console', weight: 2 },
         { id: 'geolocation-on-start', weight: 2 },
+        { id: 'image-alt', weight: 5 },
+        { id: 'focus-traps', weight: 4 },
+        { id: 'bypass', weight: 3 },
+        { id: 'line-spacing-audit', weight: 5 },
+        { id: 'autoplay-audit', weight: 3 },
       ],
     },
   },
