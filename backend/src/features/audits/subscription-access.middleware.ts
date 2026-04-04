@@ -1,3 +1,4 @@
+/// <reference path="../../shared/types/express.ts" />
 import type { NextFunction, Request, Response } from 'express';
 
 import { logger } from '../../config/logger.ts';
