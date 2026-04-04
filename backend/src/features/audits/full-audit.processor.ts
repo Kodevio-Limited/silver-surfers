@@ -46,6 +46,7 @@ interface FullAuditJobPayload {
   firstName?: string;
   lastName?: string;
   subscriptionId?: string | null;
+  recordId?: string;
 }
 
 interface InternalLinksExtractionResult {
@@ -111,6 +112,7 @@ function toFullAuditJobPayload(payload: QueueJobInput): FullAuditJobPayload {
     firstName: optionalString(payload.firstName),
     lastName: optionalString(payload.lastName),
     subscriptionId: optionalNullableString(payload.subscriptionId),
+    recordId: optionalString(payload.recordId),
   };
 }
 
@@ -145,7 +147,11 @@ async function findOrCreateAnalysisRecord(job: FullAuditJobPayload, planId: stri
 
   let record: AnalysisRecordDocument | null = null;
 
-  if (job.taskId) {
+  if (job.recordId) {
+    record = await AnalysisRecord.findById(job.recordId);
+  }
+
+  if (!record && job.taskId) {
     record = await AnalysisRecord.findOne({ taskId: job.taskId });
   }
 
@@ -679,16 +685,18 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
         error: error instanceof Error ? error.message : String(error),
       }));
 
-    if (sendResult.success) {
+    if ('success' in sendResult && sendResult.success) {
       await sleep(10_000);
+      applyFullAuditEmailResult(record, sendResult as FullAuditEmailResult, finalReportFolder);
+      record.reportFiles = mergeStoredReportFilesWithStorage(
+        buildStoredReportFilesFromAttachments(Array.isArray(attachmentsPreview) ? attachmentsPreview : []),
+        (sendResult as FullAuditEmailResult).storage,
+      );
+      finalizeFullAuditRecord(record, sendResult as FullAuditEmailResult);
+    } else {
+      record.status = 'failed';
+      record.failureReason = (sendResult as { error: string }).error || 'Email delivery failed';
     }
-
-    applyFullAuditEmailResult(record, sendResult, finalReportFolder);
-    record.reportFiles = mergeStoredReportFilesWithStorage(
-      buildStoredReportFilesFromAttachments(Array.isArray(attachmentsPreview) ? attachmentsPreview : []),
-      sendResult.storage,
-    );
-    finalizeFullAuditRecord(record, sendResult);
     await updateUsageCounters(record);
     await record.save().catch((error) => {
       fullAuditLogger.warn('Failed to persist final full-audit record state.', {

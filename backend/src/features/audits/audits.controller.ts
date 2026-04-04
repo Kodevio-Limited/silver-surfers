@@ -209,6 +209,21 @@ export async function startAudit(request: Request, response: Response): Promise<
   const planId = isOneTimeScan ? 'oneTime' : (subscription?.planId || 'oneTime');
 
   try {
+    // 1. Create the persistent database record first (Durability Backup)
+    const auditRecord = await AnalysisRecord.create({
+      user: subscription?.user || userId,
+      email,
+      firstName: firstName || '',
+      lastName: lastName || '',
+      url: reachableUrl.finalUrl,
+      taskId,
+      planId,
+      device: selectedDevice,
+      status: 'queued',
+      emailStatus: 'pending',
+    });
+
+    // 2. Add to the processing queue
     const { fullAuditQueue } = getAuditQueues();
     const job = await fullAuditQueue.addJob({
       email,
@@ -222,19 +237,7 @@ export async function startAudit(request: Request, response: Response): Promise<
       planId,
       selectedDevice,
       priority: 1,
-    });
-
-    await AnalysisRecord.create({
-      user: subscription?.user || userId,
-      email,
-      firstName: firstName || '',
-      lastName: lastName || '',
-      url: reachableUrl.finalUrl,
-      taskId,
-      planId,
-      device: selectedDevice,
-      status: 'queued',
-      emailStatus: 'pending',
+      recordId: auditRecord._id, // Pass record ID for worker to update
     });
 
     response.status(202).json({
