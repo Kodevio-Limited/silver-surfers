@@ -425,8 +425,16 @@ export const listMyAnalysis = async (params = {}) => {
   try { const res = await api.get('/auth/my-analysis', { params }); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
 };
 
+export const listMyQuickScans = async (params = {}) => {
+  try { const res = await api.get('/auth/my-quick-scans', { params }); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
+};
+
 export const getMyAnalysisDetail = async (taskId) => {
   try { const res = await api.get(`/auth/my-analysis/${taskId}`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
+};
+
+export const getMyQuickScanDetail = async (quickScanId) => {
+  try { const res = await api.get(`/auth/my-quick-scans/${quickScanId}`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
 };
 
 function parseFilenameFromContentDisposition(headerValue, fallback = 'report.pdf') {
@@ -460,6 +468,26 @@ export const fetchMyAnalysisReportFile = async (taskId, reportId, disposition = 
       filename: parseFilenameFromContentDisposition(
         res.headers['content-disposition'],
         'report.pdf',
+      ),
+    };
+  } catch (e) {
+    return { error: e.response?.data?.error || e.message };
+  }
+};
+
+export const fetchMyQuickScanReportFile = async (quickScanId, reportId, disposition = 'attachment') => {
+  try {
+    const res = await api.get(`/auth/my-quick-scans/${quickScanId}/reports/${reportId}`, {
+      params: { disposition },
+      responseType: 'blob',
+    });
+
+    return {
+      blob: res.data,
+      contentType: res.headers['content-type'] || 'application/pdf',
+      filename: parseFilenameFromContentDisposition(
+        res.headers['content-disposition'],
+        'quick-scan-report.pdf',
       ),
     };
   } catch (e) {

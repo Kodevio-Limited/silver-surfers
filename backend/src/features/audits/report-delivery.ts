@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
 import path from 'node:path';
-
 import nodemailer from 'nodemailer';
 
 import '../../config/env.ts';
@@ -13,6 +13,7 @@ import {
 } from '../storage/report-storage.ts';
 
 const reportDeliveryLogger = logger.child('feature:audits:report-delivery');
+let cachedTransporter: nodemailer.Transporter | null = null;
 const S3_EXPIRY_DAYS = Math.max(
   1,
   Math.round((Number(process.env.AWS_S3_SIGNED_URL_EXPIRES_SECONDS) || (7 * 24 * 60 * 60)) / 86400),
@@ -90,6 +91,10 @@ interface MailTransportResult {
 }
 
 function buildTransport(): MailTransportResult {
+  if (cachedTransporter) {
+    return { transporter: cachedTransporter };
+  }
+
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT) || 587;
   const secure = typeof process.env.SMTP_SECURE === 'string'
@@ -107,11 +112,17 @@ function buildTransport(): MailTransportResult {
     port,
     secure,
     auth: user && pass ? { user, pass } : undefined,
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
+    rateDelta: 1000,
+    rateLimit: 5,
     connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT) || 20_000,
     greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT) || 10_000,
     ...(process.env.SMTP_IGNORE_TLS_ERRORS === 'true' ? { tls: { rejectUnauthorized: false } } : {}),
   });
 
+  cachedTransporter = transporter;
   return { transporter };
 }
 
@@ -222,7 +233,7 @@ export async function collectAttachmentsRecursive(
   const results: ReportAttachment[] = [];
 
   async function walk(currentDirectory: string): Promise<void> {
-    let entries: fsSync.Dirent[];
+    let entries: Dirent[];
     try {
       entries = await fs.readdir(currentDirectory, { withFileTypes: true });
     } catch (error) {
@@ -242,7 +253,7 @@ export async function collectAttachmentsRecursive(
       }
 
       const lowerPath = fullPath.toLowerCase();
-      const isSupportedAttachment = lowerPath.endsWith('.pdf') || lowerPath.endsWith('.md');
+      const isSupportedAttachment = lowerPath.endsWith('.pdf');
       if (!entry.isFile() || !isSupportedAttachment) {
         continue;
       }
@@ -405,7 +416,7 @@ export async function sendAuditReportEmail(options: AuditReportEmailOptions): Pr
   });
 
   try {
-    await transporter.verify();
+    // await transporter.verify();
     const info = await transporter.sendMail({
       from: buildFromAddress(),
       to: options.to,
@@ -454,7 +465,7 @@ export async function sendDirectMail(options: DirectMailOptions): Promise<{
   }
 
   try {
-    await transporter.verify();
+    // await transporter.verify();
     const info = await transporter.sendMail({
       from: options.from || buildFromAddress(),
       to: options.to,

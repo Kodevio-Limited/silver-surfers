@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Response } from 'express';
 
-import type { AnalysisRecordDocument } from './audits.dependencies.ts';
+import type { AnalysisRecordDocument, QuickScanDocument } from './audits.dependencies.ts';
 import { collectAttachmentsRecursive } from './report-delivery.ts';
 import {
   buildAnalysisReportFileViews,
@@ -14,6 +14,8 @@ import {
   type StoredReportFile,
 } from './report-files.ts';
 import { createS3AccessUrl } from '../storage/report-storage.ts';
+
+type ReportOwnerRecord = AnalysisRecordDocument | QuickScanDocument;
 
 function isS3Directory(value: string | undefined): boolean {
   return typeof value === 'string' && value.startsWith('s3://');
@@ -27,7 +29,7 @@ function getSafeLocalReportRoot(value: string | undefined): string | null {
   return path.resolve(value);
 }
 
-function resolvePersistedReportFiles(record: AnalysisRecordDocument): StoredReportFile[] {
+function resolvePersistedReportFiles(record: ReportOwnerRecord): StoredReportFile[] {
   const normalized = normalizeStoredReportFiles(record.reportFiles);
   if (normalized.length > 0) {
     return normalized;
@@ -41,7 +43,7 @@ function resolvePersistedReportFiles(record: AnalysisRecordDocument): StoredRepo
   return [];
 }
 
-export async function hydrateAnalysisReportFiles(record: AnalysisRecordDocument): Promise<StoredReportFile[]> {
+export async function hydrateAnalysisReportFiles(record: ReportOwnerRecord): Promise<StoredReportFile[]> {
   const persistedFiles = resolvePersistedReportFiles(record);
   if (persistedFiles.length > 0) {
     if (!record.reportFiles || record.reportFiles.length !== persistedFiles.length) {
@@ -68,12 +70,12 @@ export async function hydrateAnalysisReportFiles(record: AnalysisRecordDocument)
   return builtFiles;
 }
 
-export async function listAnalysisReportFiles(record: AnalysisRecordDocument): Promise<AnalysisReportFileView[]> {
+export async function listAnalysisReportFiles(record: ReportOwnerRecord): Promise<AnalysisReportFileView[]> {
   const files = await hydrateAnalysisReportFiles(record);
   return buildAnalysisReportFileViews(files);
 }
 
-function resolveLocalReportFilePath(record: AnalysisRecordDocument, file: StoredReportFile): string | null {
+function resolveLocalReportFilePath(record: ReportOwnerRecord, file: StoredReportFile): string | null {
   const localRoot = getSafeLocalReportRoot(record.reportDirectory);
   if (!localRoot) {
     return null;
@@ -99,7 +101,7 @@ function buildContentDisposition(disposition: 'inline' | 'attachment', filename:
 }
 
 export async function sendAnalysisReportFile(
-  record: AnalysisRecordDocument,
+  record: ReportOwnerRecord,
   reportId: string,
   response: Response,
   disposition: 'inline' | 'attachment' = 'attachment',

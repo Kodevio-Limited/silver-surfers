@@ -30,6 +30,10 @@ function createReportFileId(seed: string): string {
   return crypto.createHash('sha1').update(seed).digest('hex').slice(0, 20);
 }
 
+function isUserFacingReportFile(filename: string): boolean {
+  return path.extname(filename).toLowerCase() === '.pdf';
+}
+
 function getContentType(filename: string): string {
   const extension = path.extname(filename).toLowerCase();
 
@@ -76,23 +80,27 @@ function buildStoredReportFile(options: {
 }
 
 export function buildStoredReportFilesFromAttachments(attachments: ReportAttachment[]): StoredReportFile[] {
-  return attachments.map((attachment) => buildStoredReportFile({
-    filename: attachment.filename,
-    relativePath: attachment.filename,
-    size: attachment.size,
-    sizeMB: attachment.sizeMB,
-    contentType: getContentType(attachment.filename),
-  }));
+  return attachments
+    .filter((attachment) => isUserFacingReportFile(attachment.filename))
+    .map((attachment) => buildStoredReportFile({
+      filename: attachment.filename,
+      relativePath: attachment.filename,
+      size: attachment.size,
+      sizeMB: attachment.sizeMB,
+      contentType: getContentType(attachment.filename),
+    }));
 }
 
 export function buildStoredReportFilesFromStorage(storage: QueueReportStorage | undefined): StoredReportFile[] {
-  return (storage?.objects || []).map((object) => buildStoredReportFile({
-    filename: object.filename,
-    storageKey: object.key,
-    providerUrl: object.providerUrl,
-    size: object.size,
-    sizeMB: object.sizeMB,
-  }));
+  return (storage?.objects || [])
+    .filter((object) => isUserFacingReportFile(object.filename))
+    .map((object) => buildStoredReportFile({
+      filename: object.filename,
+      storageKey: object.key,
+      providerUrl: object.providerUrl,
+      size: object.size,
+      sizeMB: object.sizeMB,
+    }));
 }
 
 export function mergeStoredReportFilesWithStorage(
@@ -153,7 +161,7 @@ export function normalizeStoredReportFiles(
   return reportFiles
     .map((file) => {
       const filename = String(file.filename || '').trim();
-      if (!filename) {
+      if (!filename || !isUserFacingReportFile(filename)) {
         return null;
       }
 

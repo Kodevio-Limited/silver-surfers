@@ -5,10 +5,10 @@ import { env } from '../../config/env.ts';
 import { logger } from '../../config/logger.ts';
 import type { QueueJobInput, QueueReportStorage, QueueResult } from '../../infrastructure/queues/job-queue.ts';
 import { requestScannerAudit } from '../scanner/scanner-client.ts';
-import { buildAuditAiReportMarkdown, generateAuditAiReport } from './ai-reporting.ts';
+import { generateAuditAiReport } from './ai-reporting.ts';
 import { buildRemediationRoadmap } from './analysis-details.ts';
 import { buildAuditScorecard } from './audit-scorecard.ts';
-import { generateLiteAccessibilityReport } from './report-generation.ts';
+import { generateAuditAiSummaryPdf, generateLiteAccessibilityReport } from './report-generation.ts';
 import { collectAttachmentsRecursive, sendAuditReportEmail } from './report-delivery.ts';
 import { buildStoredReportFilesFromAttachments, mergeStoredReportFilesWithStorage } from './report-files.ts';
 import { cleanupLocalReportDirectoryWhenStored } from './report-retention.ts';
@@ -155,12 +155,12 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
 
     const pdfResult = await generateLiteAccessibilityReport(jsonReportPath, userSpecificOutputDir);
     const score = Number.parseFloat(String(pdfResult.score));
-    await fs.writeFile(
-      path.join(userSpecificOutputDir, 'ai-executive-summary-desktop.md'),
-      buildAuditAiReportMarkdown(aiReport, { url: job.url }),
-      'utf8',
-    ).catch((error) => {
-      quickScanLogger.warn('Failed to write quick scan AI executive summary markdown.', {
+    await generateAuditAiSummaryPdf(aiReport, {
+      url: job.url,
+      outputPath: path.join(userSpecificOutputDir, 'ai-executive-summary-desktop.pdf'),
+      title: 'Quick Scan AI Executive Summary',
+    }).catch((error) => {
+      quickScanLogger.warn('Failed to generate quick scan AI executive summary PDF.', {
         quickScanId: job.quickScanId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -170,10 +170,12 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
       const attachmentsPreview = await collectAttachmentsRecursive(userSpecificOutputDir).catch(() => []);
       await QuickScan.findByIdAndUpdate(job.quickScanId, {
         scanScore: Number.isFinite(score) ? score : undefined,
+        scoreCard: liteScorecard,
         aiReport,
         status: 'completed',
         reportGenerated: true,
         reportPath: pdfResult.reportPath,
+        reportDirectory: userSpecificOutputDir,
         reportFiles: buildStoredReportFilesFromAttachments(attachmentsPreview),
       }).catch((error) => {
         quickScanLogger.warn('Failed to persist quick scan score.', {
@@ -209,6 +211,7 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
         reportPath: emailResult.storage.provider === 's3'
           ? emailResult.storage.objects?.[0]?.key || pdfResult.reportPath
           : pdfResult.reportPath,
+        reportDirectory: buildReportDirectory(emailResult.storage, userSpecificOutputDir),
         reportFiles: mergeStoredReportFilesWithStorage(
           buildStoredReportFilesFromAttachments(attachmentsPreview),
           emailResult.storage,

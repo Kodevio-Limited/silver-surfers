@@ -27,6 +27,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Account from './pages/Account';
 import AnalysisDetail from './pages/AnalysisDetail';
+import QuickScanDetail from './pages/QuickScanDetail';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminBlog from './pages/admin/AdminBlog';
@@ -105,6 +106,7 @@ function AppContent() {
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
           <Route path="/account/analysis/:taskId" element={<ProtectedRoute><AnalysisDetail /></ProtectedRoute>} />
+          <Route path="/account/quick-scans/:quickScanId" element={<ProtectedRoute><QuickScanDetail /></ProtectedRoute>} />
         </Routes>
       </main>
       {!isAdminRoute && <Footer />}

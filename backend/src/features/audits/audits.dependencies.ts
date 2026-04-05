@@ -70,9 +70,12 @@ export interface QuickScanDocument {
   firstName?: string;
   lastName?: string;
   status?: string;
+  scanScore?: number | null;
+  scoreCard?: AuditScorecard;
   scanDate?: Date;
   reportGenerated?: boolean;
   reportPath?: string | null;
+  reportDirectory?: string;
   aiReport?: AuditAiReport;
   reportStorage?: QueueReportStorage;
   reportFiles?: Array<{
@@ -85,6 +88,10 @@ export interface QuickScanDocument {
     sizeMB?: string;
     contentType?: string;
   }>;
+  errorMessage?: string | null;
+  createdAt?: Date;
+  updatedAt?: Date;
+  save(): Promise<unknown>;
 }
 
 export interface SubscriptionModel extends Model<SubscriptionDocument> {}

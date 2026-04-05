@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { listMyAnalysis, getMe, getSubscription } from '../api';
+import { listMyAnalysis, listMyQuickScans, getMe, getSubscription } from '../api';
 import { useNavigate } from 'react-router-dom';
 import './About.css';
 
@@ -27,21 +27,83 @@ const RiskPill = ({ value }) => {
   return <span className={`text-[10px] px-2 py-0.5 rounded-full ${cls}`}>RISK {normalized.toUpperCase()}</span>;
 };
 
+const QUICK_SCAN_STEPS = ['Pending', 'Queued', 'Complete'];
+
+const getQuickScanStepIndex = (value) => {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'completed') return 2;
+  if (normalized === 'queued' || normalized === 'processing') return 1;
+  return 0;
+};
+
+const getQuickScanStatusLabel = (value) => {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'processing') return 'Queued';
+  if (normalized === 'failed') return 'Failed';
+  if (normalized) return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  return 'Pending';
+};
+
+const QuickScanStatusLine = ({ value }) => {
+  const activeIndex = getQuickScanStepIndex(value);
+  const failed = String(value || '').toLowerCase() === 'failed';
+
+  return (
+    <div className='space-y-2'>
+      <div className='flex items-center gap-2 text-[11px] text-gray-300'>
+        <span className='font-semibold uppercase tracking-[0.2em] text-gray-400'>Current status</span>
+        <span className={failed ? 'text-red-300' : 'text-green-300'}>{getQuickScanStatusLabel(value)}</span>
+      </div>
+      <div className='grid grid-cols-3 gap-2'>
+        {QUICK_SCAN_STEPS.map((step, index) => {
+          const isActive = index <= activeIndex;
+          return (
+            <div key={step} className='flex items-center gap-2 min-w-0'>
+              <span className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${failed && index === activeIndex ? 'bg-red-400' : isActive ? 'bg-green-400' : 'bg-white/15'}`} />
+              <span className={`text-[11px] uppercase tracking-[0.18em] ${failed && index === activeIndex ? 'text-red-300' : isActive ? 'text-white' : 'text-gray-500'}`}>{step}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 export default function Account() {
   const [user, setUser] = useState(null);
   const [items, setItems] = useState([]);
+  const [quickScans, setQuickScans] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [auditError, setAuditError] = useState('');
+  const [quickScanError, setQuickScanError] = useState('');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('all');
   const [subscription, setSubscription] = useState(null);
   const navigate = useNavigate();
 
   const load = async () => {
-    setLoading(true); setError('');
-    const res = await listMyAnalysis({ limit: 200 });
-    if (res?.error) { setError(res.error); setItems([]); }
-    else setItems(Array.isArray(res.items) ? res.items : []);
+    setLoading(true);
+    setAuditError('');
+    setQuickScanError('');
+    const [analysisRes, quickScanRes] = await Promise.all([
+      listMyAnalysis({ limit: 200 }),
+      listMyQuickScans({ limit: 200 }),
+    ]);
+
+    if (analysisRes?.error) {
+      setAuditError(analysisRes.error);
+      setItems([]);
+    } else {
+      setItems(Array.isArray(analysisRes.items) ? analysisRes.items : []);
+    }
+
+    if (quickScanRes?.error) {
+      setQuickScanError(quickScanRes.error);
+      setQuickScans([]);
+    } else {
+      setQuickScans(Array.isArray(quickScanRes.items) ? quickScanRes.items : []);
+    }
+
     setLoading(false);
   };
 
@@ -71,12 +133,20 @@ export default function Account() {
     return matchQ && matchStatus;
   });
 
+  const filteredQuickScans = quickScans.filter(scan => {
+    const matchQ = q
+      ? ((scan.url || '').toLowerCase().includes(q.toLowerCase()) || (scan.email || '').toLowerCase().includes(q.toLowerCase()))
+      : true;
+    const matchStatus = status === 'all' ? true : (scan.status === status);
+    return matchQ && matchStatus;
+  });
+
   return (
     <div className="min-h-screen pt-28 pb-20 px-4 md:px-10 bg-gradient-to-br from-gray-950 via-blue-950 to-green-950 text-white">
       <div className="max-w-5xl mx-auto">
         <header className="mb-8">
           <h1 className="heading-page font-bold tracking-tight bg-gradient-to-r from-blue-400 via-green-500 to-teal-400 text-transparent bg-clip-text">My Account</h1>
-          <p className="text-sm text-gray-300 mt-2">Your previous scans and their delivery status.</p>
+          <p className="text-sm text-gray-300 mt-2">Your full audits, quick scans, and their current delivery status.</p>
         </header>
         {!user && (
           <div className="p-4 rounded-xl bg-black/30 border border-white/10 text-sm">Please log in to view your account.</div>
@@ -123,44 +193,106 @@ export default function Account() {
               <button onClick={load} className='px-4 py-2 rounded-lg bg-green-600/80 hover:bg-green-500 text-xs font-semibold shadow'>Refresh</button>
             </div>
 
-            {error && <div className='text-sm text-red-300'>{error}</div>}
             {loading && <div className='text-sm text-gray-400'>Loading...</div>}
 
-            {!loading && filtered.length === 0 && (
-              <div className='text-sm text-gray-400 italic'>No runs found.</div>
-            )}
-
-            <div className='space-y-3'>
-              {filtered.map(rec => (
-                <div key={rec._id || rec.taskId} className='p-4 rounded-lg bg-black/30 border border-white/10 hover:border-purple-400/40 transition'>
-                  <div className='flex flex-wrap items-center justify-between gap-4'>
-                    <div className='min-w-0 flex-1'>
-                      <div className='flex flex-wrap gap-2 items-center mb-1'>
-                        <span className='font-medium break-all'>{rec.url}</span>
-                        <StatusPill value={rec.status} />
-                        <EmailPill value={rec.emailStatus} />
-                        <ScorePill value={rec.score ?? rec.scoreCard?.overallScore} />
-                        <RiskPill value={rec.scoreCard?.riskTier} />
-                      </div>
-                      <div className='text-[11px] text-gray-300 flex flex-wrap gap-4'>
-                        <span>Task: {rec.taskId}</span>
-                        {rec.createdAt && <span>Created {new Date(rec.createdAt).toLocaleString()}</span>}
-                        {typeof rec.attachmentCount==='number' && <span>PDFs: {rec.attachmentCount}</span>}
-                        {Array.isArray(rec.reportFiles) && rec.reportFiles.length > 0 && <span>Stored reports ready</span>}
-                      </div>
-                      {rec.failureReason && <div className='mt-1 text-[11px] text-red-300'>Reason: {rec.failureReason}</div>}
-                    </div>
-                    {rec.taskId && (
-                      <button
-                        onClick={() => navigate(`/account/analysis/${rec.taskId}`)}
-                        className='rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10'
-                      >
-                        {rec.attachmentCount > 0 ? 'View reports' : 'View details'}
-                      </button>
-                    )}
+            <div className='space-y-8'>
+              <section className='space-y-3'>
+                <div className='flex items-center justify-between gap-3'>
+                  <div>
+                    <h2 className='text-lg font-semibold text-white'>Full Audits</h2>
+                    <p className='text-xs text-gray-400'>Detailed accessibility audit runs linked to your account.</p>
                   </div>
+                  <span className='text-xs text-gray-400'>{filtered.length} shown</span>
                 </div>
-              ))}
+
+                {auditError && <div className='text-sm text-red-300'>{auditError}</div>}
+                {!loading && filtered.length === 0 && (
+                  <div className='text-sm text-gray-400 italic'>No full audits found.</div>
+                )}
+
+                <div className='space-y-3'>
+                  {filtered.map(rec => (
+                    <div key={rec._id || rec.taskId} className='p-4 rounded-lg bg-black/30 border border-white/10 hover:border-purple-400/40 transition'>
+                      <div className='flex flex-wrap items-center justify-between gap-4'>
+                        <div className='min-w-0 flex-1'>
+                          <div className='flex flex-wrap gap-2 items-center mb-1'>
+                            <span className='font-medium break-all'>{rec.url}</span>
+                            <StatusPill value={rec.status} />
+                            <EmailPill value={rec.emailStatus} />
+                            <ScorePill value={rec.score ?? rec.scoreCard?.overallScore} />
+                            <RiskPill value={rec.scoreCard?.riskTier} />
+                          </div>
+                          <div className='text-[11px] text-gray-300 flex flex-wrap gap-4'>
+                            <span>Task: {rec.taskId}</span>
+                            {rec.createdAt && <span>Created {new Date(rec.createdAt).toLocaleString()}</span>}
+                            {typeof rec.attachmentCount==='number' && <span>PDFs: {rec.attachmentCount}</span>}
+                            {Array.isArray(rec.reportFiles) && rec.reportFiles.length > 0 && <span>Stored reports ready</span>}
+                          </div>
+                          {rec.failureReason && <div className='mt-1 text-[11px] text-red-300'>Reason: {rec.failureReason}</div>}
+                        </div>
+                        {rec.taskId && (
+                          <button
+                            onClick={() => navigate(`/account/analysis/${rec.taskId}`)}
+                            className='rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10'
+                          >
+                            {rec.attachmentCount > 0 ? 'View reports' : 'View details'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className='space-y-3'>
+                <div className='flex items-center justify-between gap-3'>
+                  <div>
+                    <h2 className='text-lg font-semibold text-white'>Quick Scans</h2>
+                    <p className='text-xs text-gray-400'>Free scan requests with a live status line for pending, queued, and complete.</p>
+                  </div>
+                  <span className='text-xs text-gray-400'>{filteredQuickScans.length} shown</span>
+                </div>
+
+                {quickScanError && <div className='text-sm text-red-300'>{quickScanError}</div>}
+                {!loading && filteredQuickScans.length === 0 && (
+                  <div className='text-sm text-gray-400 italic'>No quick scans found.</div>
+                )}
+
+                <div className='space-y-3'>
+                  {filteredQuickScans.map(scan => (
+                    <div key={scan._id || `${scan.email}-${scan.url}-${scan.createdAt || scan.scanDate}`} className='p-4 rounded-lg bg-black/30 border border-white/10 hover:border-green-400/40 transition'>
+                      <div className='flex flex-wrap items-start justify-between gap-4'>
+                        <div className='min-w-0 flex-1 space-y-3'>
+                          <div className='flex flex-wrap gap-2 items-center'>
+                            <span className='font-medium break-all'>{scan.url}</span>
+                            <StatusPill value={scan.status} />
+                            <ScorePill value={scan.scanScore} />
+                          </div>
+
+                          <QuickScanStatusLine value={scan.status} />
+
+                          <div className='text-[11px] text-gray-300 flex flex-wrap gap-4'>
+                            {scan.scanDate && <span>Scanned {new Date(scan.scanDate).toLocaleString()}</span>}
+                            {scan.createdAt && <span>Requested {new Date(scan.createdAt).toLocaleString()}</span>}
+                            {scan.reportGenerated && <span>Report generated</span>}
+                            {Array.isArray(scan.reportFiles) && scan.reportFiles.length > 0 && <span>Stored reports ready</span>}
+                          </div>
+
+                          {scan.errorMessage && <div className='text-[11px] text-red-300'>Reason: {scan.errorMessage}</div>}
+                        </div>
+                        {scan._id && (
+                          <button
+                            onClick={() => navigate(`/account/quick-scans/${scan._id}`)}
+                            className='rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10'
+                          >
+                            View quick scan
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
             </div>
           </section>
           </>

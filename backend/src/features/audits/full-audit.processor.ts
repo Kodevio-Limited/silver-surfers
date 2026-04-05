@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { extractInternalLinks } from './internal-links.ts';
-import { runLighthouseAudit } from './scanner/audit-service.ts';
-import { buildAuditAiReportMarkdown, generateAuditAiReport } from './ai-reporting.ts';
+import { requestScannerAudit } from '../scanner/scanner-client.ts';
+import { generateAuditAiReport } from './ai-reporting.ts';
 import { buildRemediationRoadmap } from './analysis-details.ts';
 import { env } from '../../config/env.ts';
 import { logger } from '../../config/logger.ts';
@@ -28,6 +28,7 @@ import { checkScoreThreshold } from './threshold-check.ts';
 import {
   calculateSeniorFriendlinessScore,
   generateCombinedPlatformReport,
+  generateAuditAiSummaryPdf,
   generateSeniorAccessibilityReport,
   generateSummaryPDF,
   mergePDFsByPlatform,
@@ -230,14 +231,14 @@ async function auditLinkForDevice(
   device: FullAuditDevice,
   finalReportFolder: string,
 ): Promise<FullAuditReportEntry | null> {
-  const auditResult = await runLighthouseAudit({ url: link, device, format: 'json' });
-
+  const auditResult = await requestScannerAudit({ url: link, device, format: 'json', includeReport: true });
+  
   if (!auditResult.success || !auditResult.reportPath) {
     fullAuditLogger.error('Skipping failed full-audit page scan.', {
       url: link,
       device,
-      error: auditResult.error || 'Unknown audit error',
-      errorCode: auditResult.errorCode,
+      error: (auditResult as any).error || 'Unknown audit error',
+      errorCode: (auditResult as any).errorCode,
     });
     return null;
   }
@@ -628,15 +629,15 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
       record.aiReport = aiReport;
 
       const aiSummaryFilename = effectivePlanId === 'pro' || !job.selectedDevice
-        ? 'ai-executive-summary.md'
-        : `ai-executive-summary-${job.selectedDevice}.md`;
+        ? 'ai-executive-summary.pdf'
+        : `ai-executive-summary-${job.selectedDevice}.pdf`;
 
-      await fs.writeFile(
-        path.join(finalReportFolder, aiSummaryFilename),
-        buildAuditAiReportMarkdown(aiReport, { url: job.url }),
-        'utf8',
-      ).catch((error) => {
-        fullAuditLogger.warn('Failed to write AI executive summary markdown.', {
+      await generateAuditAiSummaryPdf(aiReport, {
+        url: job.url,
+        outputPath: path.join(finalReportFolder, aiSummaryFilename),
+        title: 'AI Executive Summary',
+      }).catch((error) => {
+        fullAuditLogger.warn('Failed to generate AI executive summary PDF.', {
           taskId: effectiveTaskId,
           error: error instanceof Error ? error.message : String(error),
         });

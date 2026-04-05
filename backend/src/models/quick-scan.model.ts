@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-import { aiReportSchema, reportFileSchema, reportStorageSchema } from './shared-schemas.ts';
+import { aiReportSchema, reportFileSchema, reportStorageSchema, scoreCardSchema } from './shared-schemas.ts';
 
 const quickScanSchema = new mongoose.Schema({
   url: {
@@ -28,6 +28,10 @@ const quickScanSchema = new mongoose.Schema({
     max: 100,
     default: null,
   },
+  scoreCard: {
+    type: scoreCardSchema,
+    default: undefined,
+  },
   scanDate: {
     type: Date,
     default: Date.now,
@@ -42,6 +46,10 @@ const quickScanSchema = new mongoose.Schema({
     default: false,
   },
   reportPath: {
+    type: String,
+    default: null,
+  },
+  reportDirectory: {
     type: String,
     default: null,
   },

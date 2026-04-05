@@ -7,6 +7,7 @@ import { env } from '../../config/env.ts';
 import { logger } from '../../config/logger.ts';
 import { asyncHandler } from '../../shared/http/async-handler.ts';
 import { buildAnalysisDetail } from '../audits/analysis-details.ts';
+import { getQuickScanModel } from '../audits/audits.dependencies.ts';
 import { listAnalysisReportFiles, sendAnalysisReportFile } from '../audits/analysis-reports.ts';
 import { getAnalysisRecordModel, getEmailModule, getUserModel } from './auth.dependencies.ts';
 import { authRequired, decodeAuthToken, readBearerToken } from './auth.middleware.ts';
@@ -41,6 +42,16 @@ function buildOwnedAnalysisQuery(user: { id?: string; email?: string } | undefin
       { email: user?.email },
     ],
   };
+}
+
+function buildOwnedQuickScanQuery(user: { email?: string } | undefined): Record<string, unknown> {
+  return {
+    email: String(user?.email || '').toLowerCase(),
+  };
+}
+
+function isValidObjectId(value: string): boolean {
+  return /^[a-f0-9]{24}$/i.test(value);
 }
 
 router.post('/register', asyncHandler(async (request, response) => {
@@ -312,6 +323,115 @@ router.get('/my-analysis', authRequired, asyncHandler(async (request, response) 
     .lean();
 
   response.json({ items });
+}));
+
+router.get('/my-quick-scans', authRequired, asyncHandler(async (request, response) => {
+  const QuickScan = await getQuickScanModel();
+  const user = request.user;
+  const limit = Number(request.query.limit) || 50;
+
+  const items = await QuickScan.find(buildOwnedQuickScanQuery(user))
+    .sort({ scanDate: -1, createdAt: -1 })
+    .limit(limit)
+    .lean();
+
+  response.json({ items });
+}));
+
+router.get('/my-quick-scans/:quickScanId', authRequired, asyncHandler(async (request, response) => {
+  const QuickScan = await getQuickScanModel();
+  const user = request.user;
+  const quickScanId = String(request.params.quickScanId || '').trim();
+
+  if (!quickScanId || !isValidObjectId(quickScanId)) {
+    response.status(400).json({ error: 'Quick scan ID is required.' });
+    return;
+  }
+
+  const item = await QuickScan.findOne({
+    $and: [
+      { _id: quickScanId },
+      buildOwnedQuickScanQuery(user),
+    ],
+  });
+
+  if (!item) {
+    response.status(404).json({ error: 'Quick scan not found.' });
+    return;
+  }
+
+  await listAnalysisReportFiles(item);
+
+  const attachmentCount = Array.isArray(item.reportFiles) && item.reportFiles.length > 0
+    ? item.reportFiles.length
+    : Number(item.reportStorage?.objectCount || 0);
+
+  const detail = buildAnalysisDetail({
+    _id: item._id,
+    taskId: String(item._id || ''),
+    email: item.email,
+    firstName: item.firstName,
+    lastName: item.lastName,
+    url: item.url,
+    score: item.scanScore ?? item.scoreCard?.overallScore,
+    scoreCard: item.scoreCard,
+    aiReport: item.aiReport,
+    status: item.status,
+    emailStatus: item.status === 'completed' ? 'sent' : item.status === 'failed' ? 'failed' : 'pending',
+    attachmentCount,
+    failureReason: item.errorMessage || undefined,
+    reportDirectory: item.reportDirectory || undefined,
+    reportStorage: item.reportStorage,
+    reportFiles: item.reportFiles,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  });
+
+  response.json({
+    item: {
+      ...detail,
+      quickScanId,
+      scanDate: item.scanDate instanceof Date ? item.scanDate.toISOString() : item.scanDate,
+      reportGenerated: Boolean(item.reportGenerated),
+    },
+  });
+}));
+
+router.get('/my-quick-scans/:quickScanId/reports/:reportId', authRequired, asyncHandler(async (request, response) => {
+  const QuickScan = await getQuickScanModel();
+  const user = request.user;
+  const quickScanId = String(request.params.quickScanId || '').trim();
+  const reportId = String(request.params.reportId || '').trim();
+  const disposition = request.query.disposition === 'inline' ? 'inline' : 'attachment';
+
+  if (!quickScanId || !isValidObjectId(quickScanId) || !reportId) {
+    response.status(400).json({ error: 'Quick scan ID and report ID are required.' });
+    return;
+  }
+
+  const item = await QuickScan.findOne({
+    $and: [
+      { _id: quickScanId },
+      buildOwnedQuickScanQuery(user),
+    ],
+  });
+
+  if (!item) {
+    response.status(404).json({ error: 'Quick scan not found.' });
+    return;
+  }
+
+  const sent = await sendAnalysisReportFile(item, reportId, response, disposition).catch((error) => {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return false;
+    }
+
+    throw error;
+  });
+
+  if (!sent && !response.headersSent) {
+    response.status(404).json({ error: 'Report file not found.' });
+  }
 }));
 
 router.get('/my-analysis/:taskId', authRequired, asyncHandler(async (request, response) => {

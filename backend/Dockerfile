@@ -5,10 +5,13 @@
 # ────────────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS deps
 
+# Enable corepack and prepare pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 WORKDIR /usr/src/app
 
-COPY package*.json ./
-RUN npm ci --omit=dev
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile
 
 # ────────────────────────────────────────────────────────────────
 # Stage 2: final — API server (no browser required)

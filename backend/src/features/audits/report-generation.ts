@@ -10,6 +10,7 @@ import { calculateSeniorFriendlinessScore as tsCalculateSeniorFriendlinessScore 
 import { generateSeniorAccessibilityReport as tsGenerateSeniorAccessibilityReport } from './scanner/pdf-generator.js';
 import { generateLiteAccessibilityReport as tsGenerateLiteAccessibilityReport } from './scanner/pdf-generator-lite.js';
 import type { FullAuditDevice } from './full-audit.helpers.ts';
+import type { AuditAiReport } from './ai-reporting.ts';
 
 export interface LitePdfResult {
   reportPath: string;
@@ -260,6 +261,106 @@ export async function generateSummaryPDF(
 
     doc.end();
     writeStream.on('finish', () => resolve(outputPath));
+    writeStream.on('error', reject);
+  });
+}
+
+export async function generateAuditAiSummaryPdf(
+  aiReport: AuditAiReport,
+  options: {
+    url: string;
+    outputPath: string;
+    title?: string;
+  },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      margin: 48,
+      size: 'A4',
+      bufferPages: true,
+    });
+
+    const writeStream = fsSync.createWriteStream(options.outputPath);
+    doc.pipe(writeStream);
+
+    doc.registerFont('RegularFont', 'Helvetica');
+    doc.registerFont('BoldFont', 'Helvetica-Bold');
+
+    const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const generatedAt = new Date(aiReport.generatedAt);
+    const metadataEntries = [
+      ['URL', options.url],
+      ['Status', aiReport.status],
+      ['Provider', aiReport.provider],
+      ...(aiReport.model ? [['Model', aiReport.model]] : []),
+      ['Generated At', Number.isNaN(generatedAt.getTime()) ? aiReport.generatedAt : generatedAt.toLocaleString()],
+    ];
+
+    const renderSection = (heading: string, body: string): void => {
+      if (!body?.trim()) {
+        return;
+      }
+
+      doc.moveDown(0.8);
+      doc.font('BoldFont').fontSize(16).fillColor('#111827')
+        .text(heading, { width: contentWidth });
+      doc.moveDown(0.25);
+      doc.font('RegularFont').fontSize(11).fillColor('#374151')
+        .text(body, {
+          width: contentWidth,
+          lineGap: 4,
+        });
+    };
+
+    doc.font('BoldFont').fontSize(24).fillColor('#0F172A')
+      .text(options.title || 'AI Executive Summary', {
+        width: contentWidth,
+      });
+
+    doc.moveDown(0.3);
+    doc.font('BoldFont').fontSize(18).fillColor('#1D4ED8')
+      .text(aiReport.headline, {
+        width: contentWidth,
+      });
+
+    doc.moveDown(0.8);
+    doc.font('RegularFont').fontSize(10).fillColor('#4B5563');
+    metadataEntries.forEach(([label, value]) => {
+      doc.text(`${label}: ${value}`, {
+        width: contentWidth,
+        lineGap: 2,
+      });
+    });
+
+    renderSection('Summary', aiReport.summary);
+    renderSection('Business Impact', aiReport.businessImpact);
+    renderSection('Priority Summary', aiReport.prioritySummary);
+
+    if (Array.isArray(aiReport.topRecommendations) && aiReport.topRecommendations.length > 0) {
+      doc.moveDown(0.8);
+      doc.font('BoldFont').fontSize(16).fillColor('#111827')
+        .text('Top Recommendations', { width: contentWidth });
+      doc.moveDown(0.25);
+      doc.font('RegularFont').fontSize(11).fillColor('#374151');
+      aiReport.topRecommendations.forEach((recommendation, index) => {
+        doc.text(`${index + 1}. ${recommendation}`, {
+          width: contentWidth,
+          indent: 10,
+          lineGap: 4,
+        });
+      });
+    }
+
+    renderSection('Stakeholder Note', aiReport.stakeholderNote);
+
+    const pageRange = doc.bufferedPageRange();
+    for (let pageIndex = 0; pageIndex < pageRange.count; pageIndex += 1) {
+      doc.switchToPage(pageIndex);
+      addFooterToPdfDocument(doc, pageIndex + 1);
+    }
+
+    doc.end();
+    writeStream.on('finish', () => resolve(options.outputPath));
     writeStream.on('error', reject);
   });
 }
