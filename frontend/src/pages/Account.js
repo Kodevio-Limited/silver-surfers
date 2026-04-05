@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { listMyAnalysis, listMyQuickScans, getMe, getSubscription } from '../api';
+import { listMyAnalysis, listMyQuickScans, rerunMyAnalysis, rerunMyQuickScan, getMe, getSubscription } from '../api';
 import { useNavigate } from 'react-router-dom';
 import './About.css';
 
@@ -76,6 +76,7 @@ export default function Account() {
   const [loading, setLoading] = useState(true);
   const [auditError, setAuditError] = useState('');
   const [quickScanError, setQuickScanError] = useState('');
+  const [rerunningKey, setRerunningKey] = useState('');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('all');
   const [subscription, setSubscription] = useState(null);
@@ -140,6 +141,36 @@ export default function Account() {
     const matchStatus = status === 'all' ? true : (scan.status === status);
     return matchQ && matchStatus;
   });
+
+  const handleRerunAnalysis = async (taskId) => {
+    if (!taskId) return;
+    setRerunningKey(`analysis:${taskId}`);
+    setAuditError('');
+    const result = await rerunMyAnalysis(taskId);
+    setRerunningKey('');
+
+    if (result?.error) {
+      setAuditError(result.error);
+      return;
+    }
+
+    await load();
+  };
+
+  const handleRerunQuickScan = async (quickScanId) => {
+    if (!quickScanId) return;
+    setRerunningKey(`quick:${quickScanId}`);
+    setQuickScanError('');
+    const result = await rerunMyQuickScan(quickScanId);
+    setRerunningKey('');
+
+    if (result?.error) {
+      setQuickScanError(result.error);
+      return;
+    }
+
+    await load();
+  };
 
   return (
     <div className="min-h-screen pt-28 pb-20 px-4 md:px-10 bg-gradient-to-br from-gray-950 via-blue-950 to-green-950 text-white">
@@ -230,14 +261,25 @@ export default function Account() {
                           </div>
                           {rec.failureReason && <div className='mt-1 text-[11px] text-red-300'>Reason: {rec.failureReason}</div>}
                         </div>
-                        {rec.taskId && (
-                          <button
-                            onClick={() => navigate(`/account/analysis/${rec.taskId}`)}
-                            className='rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10'
-                          >
-                            {rec.attachmentCount > 0 ? 'View reports' : 'View details'}
-                          </button>
-                        )}
+                        <div className='flex flex-wrap gap-2'>
+                          {rec.status === 'failed' && rec.taskId && (
+                            <button
+                              onClick={() => handleRerunAnalysis(rec.taskId)}
+                              disabled={rerunningKey === `analysis:${rec.taskId}`}
+                              className='rounded-lg bg-amber-600/80 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60'
+                            >
+                              {rerunningKey === `analysis:${rec.taskId}` ? 'Re-running...' : 'Re-run'}
+                            </button>
+                          )}
+                          {rec.taskId && (
+                            <button
+                              onClick={() => navigate(`/account/analysis/${rec.taskId}`)}
+                              className='rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10'
+                            >
+                              {rec.attachmentCount > 0 ? 'View reports' : 'View details'}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -280,14 +322,25 @@ export default function Account() {
 
                           {scan.errorMessage && <div className='text-[11px] text-red-300'>Reason: {scan.errorMessage}</div>}
                         </div>
-                        {scan._id && (
-                          <button
-                            onClick={() => navigate(`/account/quick-scans/${scan._id}`)}
-                            className='rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10'
-                          >
-                            View quick scan
-                          </button>
-                        )}
+                        <div className='flex flex-wrap gap-2'>
+                          {scan.status === 'failed' && scan._id && (
+                            <button
+                              onClick={() => handleRerunQuickScan(scan._id)}
+                              disabled={rerunningKey === `quick:${scan._id}`}
+                              className='rounded-lg bg-amber-600/80 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60'
+                            >
+                              {rerunningKey === `quick:${scan._id}` ? 'Re-running...' : 'Re-run'}
+                            </button>
+                          )}
+                          {scan._id && (
+                            <button
+                              onClick={() => navigate(`/account/quick-scans/${scan._id}`)}
+                              className='rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10'
+                            >
+                              View quick scan
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}

@@ -9,6 +9,7 @@ import { asyncHandler } from '../../shared/http/async-handler.ts';
 import { buildAnalysisDetail } from '../audits/analysis-details.ts';
 import { getQuickScanModel } from '../audits/audits.dependencies.ts';
 import { listAnalysisReportFiles, sendAnalysisReportFile } from '../audits/analysis-reports.ts';
+import { getAuditQueues } from '../audits/audits.runtime.ts';
 import { getAnalysisRecordModel, getEmailModule, getUserModel } from './auth.dependencies.ts';
 import { authRequired, decodeAuthToken, readBearerToken } from './auth.middleware.ts';
 
@@ -52,6 +53,10 @@ function buildOwnedQuickScanQuery(user: { email?: string } | undefined): Record<
 
 function isValidObjectId(value: string): boolean {
   return /^[a-f0-9]{24}$/i.test(value);
+}
+
+function createTaskId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 router.post('/register', asyncHandler(async (request, response) => {
@@ -336,6 +341,124 @@ router.get('/my-quick-scans', authRequired, asyncHandler(async (request, respons
     .lean();
 
   response.json({ items });
+}));
+
+router.post('/my-analysis/:taskId/rerun', authRequired, asyncHandler(async (request, response) => {
+  const AnalysisRecord = await getAnalysisRecordModel();
+  const user = request.user;
+  const taskId = String(request.params.taskId || '').trim();
+
+  if (!taskId) {
+    response.status(400).json({ error: 'Task ID is required.' });
+    return;
+  }
+
+  const item = await AnalysisRecord.findOne({
+    $and: [
+      { taskId },
+      buildOwnedAnalysisQuery(user),
+    ],
+  });
+
+  if (!item) {
+    response.status(404).json({ error: 'Analysis record not found.' });
+    return;
+  }
+
+  if (String(item.status || '').toLowerCase() !== 'failed') {
+    response.status(400).json({ error: 'Only failed scans can be rerun.' });
+    return;
+  }
+
+  item.status = 'queued';
+  item.emailStatus = 'pending';
+  item.emailError = undefined;
+  item.failureReason = undefined;
+  item.attachmentCount = 0;
+  item.reportFiles = [];
+  item.reportStorage = undefined;
+  item.score = undefined;
+  item.scoreCard = undefined;
+  item.aiReport = undefined;
+  await item.save();
+
+  const { fullAuditQueue } = getAuditQueues();
+  await fullAuditQueue.addJob({
+    email: item.email,
+    url: item.url,
+    userId: item.user || undefined,
+    taskId: item.taskId,
+    planId: item.planId,
+    selectedDevice: item.device,
+    firstName: item.firstName || '',
+    lastName: item.lastName || '',
+  });
+
+  response.json({
+    message: 'Failed full audit has been queued again.',
+    taskId: item.taskId,
+  });
+}));
+
+router.post('/my-quick-scans/:quickScanId/rerun', authRequired, asyncHandler(async (request, response) => {
+  const QuickScan = await getQuickScanModel();
+  const user = request.user;
+  const quickScanId = String(request.params.quickScanId || '').trim();
+
+  if (!quickScanId || !isValidObjectId(quickScanId)) {
+    response.status(400).json({ error: 'Quick scan ID is required.' });
+    return;
+  }
+
+  const item = await QuickScan.findOne({
+    $and: [
+      { _id: quickScanId },
+      buildOwnedQuickScanQuery(user),
+    ],
+  });
+
+  if (!item) {
+    response.status(404).json({ error: 'Quick scan not found.' });
+    return;
+  }
+
+  if (String(item.status || '').toLowerCase() !== 'failed') {
+    response.status(400).json({ error: 'Only failed scans can be rerun.' });
+    return;
+  }
+
+  item.status = 'queued';
+  item.errorMessage = undefined;
+  item.scanScore = undefined;
+  item.scoreCard = undefined;
+  item.aiReport = undefined;
+  item.reportGenerated = false;
+  item.reportPath = null;
+  item.reportDirectory = undefined;
+  item.reportStorage = undefined;
+  item.reportFiles = [];
+  item.scanDate = new Date();
+  await item.save();
+
+  const { quickScanQueue } = getAuditQueues();
+  const taskId = createTaskId();
+  await quickScanQueue.addJob({
+    email: item.email,
+    url: item.url,
+    firstName: item.firstName || '',
+    lastName: item.lastName || '',
+    userId: null,
+    taskId,
+    jobType: 'quick-scan',
+    subscriptionId: null,
+    priority: 2,
+    quickScanId: item._id,
+  });
+
+  response.json({
+    message: 'Failed quick scan has been queued again.',
+    quickScanId: String(item._id || quickScanId),
+  });
 }));
 
 router.get('/my-quick-scans/:quickScanId', authRequired, asyncHandler(async (request, response) => {

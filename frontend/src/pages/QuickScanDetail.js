@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { fetchMyQuickScanReportFile, getMyQuickScanDetail } from '../api';
+import { fetchMyQuickScanReportFile, getMyQuickScanDetail, rerunMyQuickScan } from '../api';
 
 function ScoreBadge({ value, tone }) {
   const tones = {
@@ -123,26 +123,28 @@ export default function QuickScanDetail() {
   const [error, setError] = useState('');
   const [reportAction, setReportAction] = useState('');
   const [reportError, setReportError] = useState('');
+  const [rerunning, setRerunning] = useState(false);
+
+  const loadDetail = async (cancelled = false) => {
+    setLoading(true);
+    setError('');
+
+    const result = await getMyQuickScanDetail(quickScanId);
+    if (cancelled) return;
+
+    if (result?.error) {
+      setError(result.error);
+      setItem(null);
+    } else {
+      setItem(result?.item || null);
+    }
+
+    setLoading(false);
+  };
 
   useEffect(() => {
     let cancelled = false;
-
-    (async () => {
-      setLoading(true);
-      setError('');
-
-      const result = await getMyQuickScanDetail(quickScanId);
-      if (cancelled) return;
-
-      if (result?.error) {
-        setError(result.error);
-        setItem(null);
-      } else {
-        setItem(result?.item || null);
-      }
-
-      setLoading(false);
-    })();
+    loadDetail(cancelled);
 
     return () => {
       cancelled = true;
@@ -155,6 +157,21 @@ export default function QuickScanDetail() {
   const topIssues = item?.topIssues || [];
   const remediationBuckets = item?.remediationBuckets || [];
   const aiReport = item?.aiReport || null;
+
+  const handleRerun = async () => {
+    if (!quickScanId) return;
+    setRerunning(true);
+    setError('');
+    const result = await rerunMyQuickScan(quickScanId);
+    setRerunning(false);
+
+    if (result?.error) {
+      setError(result.error);
+      return;
+    }
+
+    await loadDetail();
+  };
 
   const handleReportAction = async (reportFile, disposition) => {
     if (!quickScanId || !reportFile?.id) return;
@@ -209,6 +226,15 @@ export default function QuickScanDetail() {
 
           {item ? (
             <div className="flex flex-wrap gap-2">
+              {item.status === 'failed' ? (
+                <button
+                  onClick={handleRerun}
+                  disabled={rerunning}
+                  className="rounded-lg bg-amber-600/80 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {rerunning ? 'Re-running...' : 'Re-run scan'}
+                </button>
+              ) : null}
               <ScoreBadge value={item.status} tone={getStatusTone(item.status)} />
               {item.riskTier ? <ScoreBadge value={`${item.riskTier} risk`} tone={getRiskTone(item.riskTier)} /> : null}
               {item.scoreStatus ? <ScoreBadge value={item.scoreStatus} tone={getStatusTone(item.scoreStatus)} /> : null}

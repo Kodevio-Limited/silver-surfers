@@ -433,8 +433,16 @@ export const getMyAnalysisDetail = async (taskId) => {
   try { const res = await api.get(`/auth/my-analysis/${taskId}`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
 };
 
+export const rerunMyAnalysis = async (taskId) => {
+  try { const res = await api.post(`/auth/my-analysis/${taskId}/rerun`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
+};
+
 export const getMyQuickScanDetail = async (quickScanId) => {
   try { const res = await api.get(`/auth/my-quick-scans/${quickScanId}`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
+};
+
+export const rerunMyQuickScan = async (quickScanId) => {
+  try { const res = await api.post(`/auth/my-quick-scans/${quickScanId}/rerun`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
 };
 
 function parseFilenameFromContentDisposition(headerValue, fallback = 'report.pdf') {

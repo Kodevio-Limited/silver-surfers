@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { fetchMyAnalysisReportFile, getMyAnalysisDetail } from '../api';
+import { fetchMyAnalysisReportFile, getMyAnalysisDetail, rerunMyAnalysis } from '../api';
 
 function ScoreBadge({ value, tone }) {
   const tones = {
@@ -161,28 +161,30 @@ export default function AnalysisDetail() {
   const [error, setError] = useState('');
   const [reportAction, setReportAction] = useState('');
   const [reportError, setReportError] = useState('');
+  const [rerunning, setRerunning] = useState(false);
+
+  const loadDetail = async (cancelled = false) => {
+    setLoading(true);
+    setError('');
+
+    const result = await getMyAnalysisDetail(taskId);
+    if (cancelled) {
+      return;
+    }
+
+    if (result?.error) {
+      setError(result.error);
+      setItem(null);
+    } else {
+      setItem(result?.item || null);
+    }
+
+    setLoading(false);
+  };
 
   useEffect(() => {
     let cancelled = false;
-
-    (async () => {
-      setLoading(true);
-      setError('');
-
-      const result = await getMyAnalysisDetail(taskId);
-      if (cancelled) {
-        return;
-      }
-
-      if (result?.error) {
-        setError(result.error);
-        setItem(null);
-      } else {
-        setItem(result?.item || null);
-      }
-
-      setLoading(false);
-    })();
+    loadDetail(cancelled);
 
     return () => {
       cancelled = true;
@@ -199,6 +201,21 @@ export default function AnalysisDetail() {
       : buildFallbackRemediationBuckets(roadmap);
   const aiReport = item?.aiReport || null;
   const reportFiles = item?.reportFiles || [];
+
+  const handleRerun = async () => {
+    if (!taskId) return;
+    setRerunning(true);
+    setError('');
+    const result = await rerunMyAnalysis(taskId);
+    setRerunning(false);
+
+    if (result?.error) {
+      setError(result.error);
+      return;
+    }
+
+    await loadDetail();
+  };
 
   const handleReportAction = async (reportFile, disposition) => {
     if (!taskId || !reportFile?.id) {
@@ -255,6 +272,15 @@ export default function AnalysisDetail() {
 
           {item ? (
             <div className="flex flex-wrap gap-2">
+              {item.status === 'failed' ? (
+                <button
+                  onClick={handleRerun}
+                  disabled={rerunning}
+                  className="rounded-lg bg-amber-600/80 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {rerunning ? 'Re-running...' : 'Re-run scan'}
+                </button>
+              ) : null}
               <ScoreBadge value={item.status} tone={getStatusTone(item.status)} />
               <ScoreBadge value={`Email ${item.emailStatus}`} tone={getStatusTone(item.emailStatus)} />
               {item.riskTier ? <ScoreBadge value={`${item.riskTier} risk`} tone={getRiskTone(item.riskTier)} /> : null}
