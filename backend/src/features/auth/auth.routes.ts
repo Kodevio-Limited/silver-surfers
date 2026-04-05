@@ -429,6 +429,8 @@ router.post('/my-quick-scans/:quickScanId/rerun', authRequired, asyncHandler(asy
 
   item.status = 'queued';
   item.errorMessage = undefined;
+  item.emailStatus = 'pending';
+  item.emailError = undefined;
   item.scanScore = undefined;
   item.scoreCard = undefined;
   item.aiReport = undefined;
@@ -500,9 +502,10 @@ router.get('/my-quick-scans/:quickScanId', authRequired, asyncHandler(async (req
     scoreCard: item.scoreCard,
     aiReport: item.aiReport,
     status: item.status,
-    emailStatus: item.status === 'completed' ? 'sent' : item.status === 'failed' ? 'failed' : 'pending',
+    emailStatus: item.emailStatus || (item.status === 'completed' ? 'sent' : item.status === 'failed' ? 'failed' : 'pending'),
     attachmentCount,
     failureReason: item.errorMessage || undefined,
+    emailError: item.emailError || undefined,
     reportDirectory: item.reportDirectory || undefined,
     reportStorage: item.reportStorage,
     reportFiles: item.reportFiles,

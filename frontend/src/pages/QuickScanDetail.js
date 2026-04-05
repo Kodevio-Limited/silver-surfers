@@ -236,6 +236,7 @@ export default function QuickScanDetail() {
                 </button>
               ) : null}
               <ScoreBadge value={item.status} tone={getStatusTone(item.status)} />
+              <ScoreBadge value={`Email ${item.emailStatus || 'pending'}`} tone={getStatusTone(item.emailStatus)} />
               {item.riskTier ? <ScoreBadge value={`${item.riskTier} risk`} tone={getRiskTone(item.riskTier)} /> : null}
               {item.scoreStatus ? <ScoreBadge value={item.scoreStatus} tone={getStatusTone(item.scoreStatus)} /> : null}
             </div>
@@ -253,6 +254,11 @@ export default function QuickScanDetail() {
         {!loading && !error && item ? (
           <div className="space-y-8">
             <QuickScanProgress status={item.status} />
+            {item.emailError ? (
+              <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+                Email delivery issue: {item.emailError}
+              </div>
+            ) : null}
 
             <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <StatCard

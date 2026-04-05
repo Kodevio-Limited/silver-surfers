@@ -292,6 +292,7 @@ export async function quickAudit(request: Request, response: Response): Promise<
       firstName: firstName || '',
       lastName: lastName || '',
       status: 'queued',
+      emailStatus: 'pending',
       scanDate: new Date(),
     });
 

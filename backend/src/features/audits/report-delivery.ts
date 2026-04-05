@@ -90,6 +90,12 @@ interface MailTransportResult {
   reason?: string;
 }
 
+function resetCachedTransport(): void {
+  const previousTransporter = cachedTransporter;
+  cachedTransporter = null;
+  previousTransporter?.close();
+}
+
 function buildTransport(): MailTransportResult {
   if (cachedTransporter) {
     return { transporter: cachedTransporter };
@@ -124,6 +130,76 @@ function buildTransport(): MailTransportResult {
 
   cachedTransporter = transporter;
   return { transporter };
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isRetryableEmailError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  return [
+    ' 421 ',
+    ' 450 ',
+    ' 451 ',
+    ' 452 ',
+    ' 454 ',
+    'try again later',
+    'temporarily unavailable',
+    'timeout',
+    'timed out',
+    'connection closed',
+    'connection reset',
+    'econnreset',
+    'etimedout',
+    'esocket',
+  ].some((token) => message.includes(token));
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sendMailWithRetry(
+  mailOptions: nodemailer.SendMailOptions,
+  context: { to: string; subject: string; kind: 'audit-report' | 'direct-mail' },
+): Promise<nodemailer.SentMessageInfo> {
+  let lastError: unknown;
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const { transporter, reason } = buildTransport();
+    if (!transporter) {
+      throw new Error(reason || 'SMTP transporter unavailable');
+    }
+
+    try {
+      return await transporter.sendMail(mailOptions);
+    } catch (error) {
+      lastError = error;
+      const retryable = isRetryableEmailError(error);
+
+      reportDeliveryLogger.warn('Email send attempt failed.', {
+        kind: context.kind,
+        to: context.to,
+        subject: context.subject,
+        attempt,
+        maxAttempts,
+        retryable,
+        error: getErrorMessage(error),
+      });
+
+      resetCachedTransport();
+
+      if (!retryable || attempt === maxAttempts) {
+        break;
+      }
+
+      await sleep(2000 * attempt);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(getErrorMessage(lastError));
 }
 
 function normalizeAddressList(values: unknown): string[] {
@@ -354,8 +430,8 @@ function usesSignedS3Urls(): boolean {
 }
 
 export async function sendAuditReportEmail(options: AuditReportEmailOptions): Promise<AuditReportEmailResult> {
-  const { transporter, reason } = buildTransport();
-  if (!transporter) {
+  const { reason } = buildTransport();
+  if (reason && !cachedTransporter) {
     reportDeliveryLogger.warn('Audit report email skipped.', {
       reason,
       to: options.to,
@@ -416,12 +492,15 @@ export async function sendAuditReportEmail(options: AuditReportEmailOptions): Pr
   });
 
   try {
-    // await transporter.verify();
-    const info = await transporter.sendMail({
+    const info = await sendMailWithRetry({
       from: buildFromAddress(),
       to: options.to,
       subject: options.subject,
       text: emailBody,
+    }, {
+      to: options.to,
+      subject: options.subject,
+      kind: 'audit-report',
     });
 
     return {
@@ -442,9 +521,9 @@ export async function sendAuditReportEmail(options: AuditReportEmailOptions): Pr
     reportDeliveryLogger.error('Audit report email send failed.', {
       to: options.to,
       subject: options.subject,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     });
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
@@ -456,8 +535,8 @@ export async function sendDirectMail(options: DirectMailOptions): Promise<{
   response?: string;
   messageId?: string;
 }> {
-  const { transporter, reason } = buildTransport();
-  if (!transporter) {
+  const { reason } = buildTransport();
+  if (reason && !cachedTransporter) {
     return {
       success: false,
       error: reason,
@@ -465,14 +544,17 @@ export async function sendDirectMail(options: DirectMailOptions): Promise<{
   }
 
   try {
-    // await transporter.verify();
-    const info = await transporter.sendMail({
+    const info = await sendMailWithRetry({
       from: options.from || buildFromAddress(),
       to: options.to,
       subject: options.subject,
       ...(options.html ? { html: options.html } : {}),
       ...(options.text ? { text: options.text } : {}),
       ...(options.attachments?.length ? { attachments: options.attachments } : {}),
+    }, {
+      to: options.to,
+      subject: options.subject,
+      kind: 'direct-mail',
     });
 
     return {
@@ -485,7 +567,7 @@ export async function sendDirectMail(options: DirectMailOptions): Promise<{
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     };
   }
 }

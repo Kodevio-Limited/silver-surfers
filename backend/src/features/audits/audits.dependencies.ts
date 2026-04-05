@@ -70,6 +70,8 @@ export interface QuickScanDocument {
   firstName?: string;
   lastName?: string;
   status?: string;
+  emailStatus?: string;
+  emailError?: string | null;
   scanScore?: number | null;
   scoreCard?: AuditScorecard;
   scanDate?: Date;

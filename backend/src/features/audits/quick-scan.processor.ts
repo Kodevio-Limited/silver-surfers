@@ -99,7 +99,11 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
   });
 
   if (job.quickScanId) {
-    await QuickScan.findByIdAndUpdate(job.quickScanId, { status: 'processing' }).catch((error) => {
+    await QuickScan.findByIdAndUpdate(job.quickScanId, {
+      status: 'processing',
+      emailStatus: 'sending',
+      emailError: undefined,
+    }).catch((error) => {
       quickScanLogger.warn('Failed to mark quick scan as processing.', {
         quickScanId: job.quickScanId,
         error: error instanceof Error ? error.message : String(error),
@@ -159,6 +163,7 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
       url: job.url,
       outputPath: path.join(userSpecificOutputDir, 'ai-executive-summary-desktop.pdf'),
       title: 'Quick Scan AI Executive Summary',
+      scorecard: liteScorecard,
     }).catch((error) => {
       quickScanLogger.warn('Failed to generate quick scan AI executive summary PDF.', {
         quickScanId: job.quickScanId,
@@ -173,6 +178,8 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
         scoreCard: liteScorecard,
         aiReport,
         status: 'completed',
+        emailStatus: 'sending',
+        emailError: undefined,
         reportGenerated: true,
         reportPath: pdfResult.reportPath,
         reportDirectory: userSpecificOutputDir,
@@ -201,12 +208,41 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
     ]);
 
     if (emailResult.success === false) {
-      throw new Error(emailResult.error || 'Quick scan email failed.');
+      const emailFailureMessage = emailResult.error || 'Quick scan email failed.';
+
+      if (job.quickScanId) {
+        await QuickScan.findByIdAndUpdate(job.quickScanId, {
+          status: 'completed',
+          emailStatus: 'failed',
+          emailError: emailFailureMessage,
+        }).catch((error) => {
+          quickScanLogger.warn('Failed to persist quick scan email failure state.', {
+            quickScanId: job.quickScanId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
+
+      quickScanLogger.warn('Quick scan completed but email delivery failed.', {
+        email: job.email,
+        url: job.url,
+        quickScanId: job.quickScanId,
+        error: emailFailureMessage,
+      });
+
+      return {
+        emailStatus: 'failed',
+        attachmentCount: 0,
+        reportDirectory: userSpecificOutputDir,
+        scansUsed: 1,
+      };
     }
 
     if (job.quickScanId && emailResult.storage) {
       const attachmentsPreview = await collectAttachmentsRecursive(userSpecificOutputDir).catch(() => []);
       await QuickScan.findByIdAndUpdate(job.quickScanId, {
+        emailStatus: 'sent',
+        emailError: undefined,
         reportStorage: emailResult.storage,
         reportPath: emailResult.storage.provider === 's3'
           ? emailResult.storage.objects?.[0]?.key || pdfResult.reportPath
@@ -218,6 +254,18 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
         ),
       }).catch((error) => {
         quickScanLogger.warn('Failed to persist quick scan storage metadata.', {
+          quickScanId: job.quickScanId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+
+    if (job.quickScanId && !emailResult.storage) {
+      await QuickScan.findByIdAndUpdate(job.quickScanId, {
+        emailStatus: 'sent',
+        emailError: undefined,
+      }).catch((error) => {
+        quickScanLogger.warn('Failed to persist quick scan email sent status.', {
           quickScanId: job.quickScanId,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -260,6 +308,8 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
     if (job.quickScanId) {
       await QuickScan.findByIdAndUpdate(job.quickScanId, {
         status: 'failed',
+        emailStatus: 'failed',
+        emailError: message,
         errorMessage: message,
       }).catch((updateError) => {
         quickScanLogger.warn('Failed to persist quick scan failure status.', {

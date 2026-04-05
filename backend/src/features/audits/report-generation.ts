@@ -11,6 +11,7 @@ import { generateSeniorAccessibilityReport as tsGenerateSeniorAccessibilityRepor
 import { generateLiteAccessibilityReport as tsGenerateLiteAccessibilityReport } from './scanner/pdf-generator-lite.js';
 import type { FullAuditDevice } from './full-audit.helpers.ts';
 import type { AuditAiReport } from './ai-reporting.ts';
+import type { AuditScorecard } from './audit-scorecard.ts';
 
 export interface LitePdfResult {
   reportPath: string;
@@ -271,13 +272,18 @@ export async function generateAuditAiSummaryPdf(
     url: string;
     outputPath: string;
     title?: string;
+    scorecard?: AuditScorecard;
   },
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
-      margin: 48,
+      margins: {
+        top: 48,
+        bottom: 64,
+        left: 48,
+        right: 48,
+      },
       size: 'A4',
-      bufferPages: true,
     });
 
     const writeStream = fsSync.createWriteStream(options.outputPath);
@@ -291,10 +297,50 @@ export async function generateAuditAiSummaryPdf(
     const metadataEntries = [
       ['URL', options.url],
       ['Status', aiReport.status],
-      ['Provider', aiReport.provider],
-      ...(aiReport.model ? [['Model', aiReport.model]] : []),
       ['Generated At', Number.isNaN(generatedAt.getTime()) ? aiReport.generatedAt : generatedAt.toLocaleString()],
     ];
+    const summaryHighlights = [
+      aiReport.headline,
+      aiReport.summary.split(/(?<=[.!?])\s+/)[0] || aiReport.summary,
+      aiReport.businessImpact.split(/(?<=[.!?])\s+/)[0] || aiReport.businessImpact,
+      aiReport.prioritySummary.split(/(?<=[.!?])\s+/)[0] || aiReport.prioritySummary,
+    ]
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .slice(0, 4);
+
+    let currentPageNumber = 1;
+
+    const drawPageFooter = (pageNumber: number): void => {
+      const previousX = doc.x;
+      const previousY = doc.y;
+      const footerY = doc.page.height - 36;
+      const leftX = doc.page.margins.left;
+      const rightX = doc.page.width - doc.page.margins.right;
+
+      doc.strokeColor('#D1D5DB')
+        .lineWidth(0.5)
+        .moveTo(leftX, footerY - 8)
+        .lineTo(rightX, footerY - 8)
+        .stroke();
+
+      doc.font('RegularFont').fontSize(9).fillColor('#6B7280')
+        .text('SilverSurfers.ai', leftX, footerY, {
+          width: 180,
+          align: 'left',
+          lineBreak: false,
+        });
+
+      doc.font('RegularFont').fontSize(9).fillColor('#6B7280')
+        .text(`Page ${pageNumber}`, rightX - 80, footerY, {
+          width: 80,
+          align: 'right',
+          lineBreak: false,
+        });
+
+      doc.x = previousX;
+      doc.y = previousY;
+    };
 
     const renderSection = (heading: string, body: string): void => {
       if (!body?.trim()) {
@@ -311,6 +357,61 @@ export async function generateAuditAiSummaryPdf(
           lineGap: 4,
         });
     };
+
+    const renderBulletSection = (heading: string, items: string[]): void => {
+      const normalizedItems = items
+        .map((item) => String(item || '').trim())
+        .filter(Boolean);
+
+      if (normalizedItems.length === 0) {
+        return;
+      }
+
+      doc.moveDown(0.8);
+      doc.font('BoldFont').fontSize(16).fillColor('#111827')
+        .text(heading, { width: contentWidth });
+      doc.moveDown(0.25);
+      doc.font('RegularFont').fontSize(11).fillColor('#374151');
+      normalizedItems.forEach((item) => {
+        doc.text(`• ${item}`, {
+          width: contentWidth,
+          indent: 8,
+          lineGap: 4,
+        });
+      });
+    };
+
+    const renderSnapshot = (): void => {
+      if (!options.scorecard) {
+        return;
+      }
+
+      const weakestDimension = [...(options.scorecard.dimensions || [])]
+        .sort((left, right) => left.score - right.score)[0];
+      const topIssues = (options.scorecard.topIssues || [])
+        .slice(0, 3)
+        .map((issue) => issue.title)
+        .filter(Boolean);
+
+      const snapshotItems = [
+        `Overall score: ${Math.round(Number(options.scorecard.overallScore || 0))}%`,
+        `Risk tier: ${String(options.scorecard.riskTier || 'unknown').toUpperCase()}`,
+        `Score status: ${String(options.scorecard.scoreStatus || 'pending').replace(/-/g, ' ')}`,
+        `Pages audited: ${Number(options.scorecard.pageCount || 0)}`,
+        ...(weakestDimension ? [`Lowest-performing category: ${weakestDimension.label} (${Math.round(weakestDimension.score)}%)`] : []),
+        ...(topIssues.length > 0 ? [`Top issue focus: ${topIssues.join(', ')}`] : []),
+      ];
+
+      renderBulletSection('Report Snapshot', snapshotItems);
+    };
+
+    drawPageFooter(currentPageNumber);
+    doc.on('pageAdded', () => {
+      currentPageNumber += 1;
+      drawPageFooter(currentPageNumber);
+      doc.x = doc.page.margins.left;
+      doc.y = doc.page.margins.top;
+    });
 
     doc.font('BoldFont').fontSize(24).fillColor('#0F172A')
       .text(options.title || 'AI Executive Summary', {
@@ -332,32 +433,13 @@ export async function generateAuditAiSummaryPdf(
       });
     });
 
+    renderSnapshot();
+    renderBulletSection('Executive Highlights', summaryHighlights);
     renderSection('Summary', aiReport.summary);
     renderSection('Business Impact', aiReport.businessImpact);
     renderSection('Priority Summary', aiReport.prioritySummary);
-
-    if (Array.isArray(aiReport.topRecommendations) && aiReport.topRecommendations.length > 0) {
-      doc.moveDown(0.8);
-      doc.font('BoldFont').fontSize(16).fillColor('#111827')
-        .text('Top Recommendations', { width: contentWidth });
-      doc.moveDown(0.25);
-      doc.font('RegularFont').fontSize(11).fillColor('#374151');
-      aiReport.topRecommendations.forEach((recommendation, index) => {
-        doc.text(`${index + 1}. ${recommendation}`, {
-          width: contentWidth,
-          indent: 10,
-          lineGap: 4,
-        });
-      });
-    }
-
+    renderBulletSection('Top Recommendations', aiReport.topRecommendations.map((recommendation, index) => `${index + 1}. ${recommendation}`));
     renderSection('Stakeholder Note', aiReport.stakeholderNote);
-
-    const pageRange = doc.bufferedPageRange();
-    for (let pageIndex = 0; pageIndex < pageRange.count; pageIndex += 1) {
-      doc.switchToPage(pageIndex);
-      addFooterToPdfDocument(doc, pageIndex + 1);
-    }
 
     doc.end();
     writeStream.on('finish', () => resolve(options.outputPath));

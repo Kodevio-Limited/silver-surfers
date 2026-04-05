@@ -308,6 +308,7 @@ export default function Account() {
                           <div className='flex flex-wrap gap-2 items-center'>
                             <span className='font-medium break-all'>{scan.url}</span>
                             <StatusPill value={scan.status} />
+                            <EmailPill value={scan.emailStatus} />
                             <ScorePill value={scan.scanScore} />
                           </div>
 
@@ -321,6 +322,7 @@ export default function Account() {
                           </div>
 
                           {scan.errorMessage && <div className='text-[11px] text-red-300'>Reason: {scan.errorMessage}</div>}
+                          {scan.emailError && <div className='text-[11px] text-amber-300'>Email: {scan.emailError}</div>}
                         </div>
                         <div className='flex flex-wrap gap-2'>
                           {scan.status === 'failed' && scan._id && (

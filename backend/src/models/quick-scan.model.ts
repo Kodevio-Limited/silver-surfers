@@ -41,6 +41,15 @@ const quickScanSchema = new mongoose.Schema({
     enum: ['queued', 'processing', 'completed', 'failed'],
     default: 'queued',
   },
+  emailStatus: {
+    type: String,
+    enum: ['pending', 'sending', 'sent', 'failed'],
+    default: 'pending',
+  },
+  emailError: {
+    type: String,
+    default: null,
+  },
   reportGenerated: {
     type: Boolean,
     default: false,

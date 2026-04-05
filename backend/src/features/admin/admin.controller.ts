@@ -171,6 +171,7 @@ export async function bulkQuickScans(request: Request, response: Response): Prom
           firstName: firstName || '',
           lastName: lastName || '',
           status: 'queued',
+          emailStatus: 'pending',
           scanDate: new Date(),
         });
 
