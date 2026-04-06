@@ -118,7 +118,7 @@ test('readEnv falls back to localhost scanner URL', () => {
   assert.equal(parsed.fullAuditFullModePageLimit, 2);
   assert.equal(parsed.fullAuditMaxFullFailuresPerDevice, 2);
   assert.equal(parsed.fullAuditMaxFullFailuresPerAudit, 3);
-  assert.equal(parsed.fullAuditScannerCooldownMs, 1500);
+  assert.equal(parsed.fullAuditScannerCooldownMs, 250);
   assert.equal(parsed.fullAuditCacheTtlMs, 24 * 60 * 60 * 1000);
   assert.equal(parsed.quickScanReportTtlMs, 30 * 60 * 1000);
 });

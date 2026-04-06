@@ -9,9 +9,13 @@ import Redis from 'ioredis';
 import { env } from '../../config/env.ts';
 import { logger } from '../../config/logger.ts';
 import type { FullAuditDevice } from './full-audit.helpers.ts';
+import type { AuditAiReport } from './ai-reporting.ts';
+import type { AuditScorecard } from './audit-scorecard.ts';
+import type { StoredReportFile } from './report-files.ts';
+import type { QueueReportStorage } from '../../infrastructure/queues/job-queue.ts';
 
 const auditCacheLogger = logger.child('feature:audits:audit-cache');
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 interface StoredCachedFullAuditPageReport {
   version: number;
@@ -30,6 +34,37 @@ export interface CachedFullAuditPageReport {
   isLiteVersion: boolean;
   cachedAt: string;
   report: Record<string, unknown>;
+}
+
+export interface CachedCompletedFullAuditSnapshot {
+  websiteUrl: string;
+  planId: string;
+  selectedDevice?: string | null;
+  totalPageLimit: number;
+  priorityPageLimit: number;
+  fullModePageLimit: number;
+  status: 'completed' | 'completed_with_warnings';
+  cachedAt: string;
+  sourceTaskId?: string;
+  score?: number | null;
+  scoreCard?: AuditScorecard;
+  aiReport?: AuditAiReport;
+  warnings: string[];
+  plannedTargetCount: number;
+  successfulTargetCount: number;
+  degradedTargetCount: number;
+  failedTargetCount: number;
+  scanTargets: Array<Record<string, unknown>>;
+  attachmentCount: number;
+  reportDirectory?: string;
+  reportStorage?: QueueReportStorage;
+  reportFiles: StoredReportFile[];
+}
+
+interface StoredCachedCompletedFullAuditSnapshot {
+  version: number;
+  cachedAt: string;
+  snapshotGzipBase64: string;
 }
 
 let cachedRedisClient: Redis | null = null;
@@ -69,6 +104,26 @@ export function buildFullAuditPageCacheKey(
   return `${env.bullMqPrefix}:full-audit:page-cache:v${CACHE_VERSION}:${device}:${sha1(`${websiteKey}|${pageKey}`)}`;
 }
 
+export function buildFullAuditReuseCacheKey(options: {
+  websiteUrl: string;
+  planId: string;
+  selectedDevice?: string | null;
+  totalPageLimit: number;
+  priorityPageLimit: number;
+  fullModePageLimit: number;
+}): string {
+  const websiteKey = normalizeWebsiteCacheUrl(options.websiteUrl);
+  const scopeKey = [
+    options.planId || 'starter',
+    options.selectedDevice || 'all-devices',
+    String(options.totalPageLimit),
+    String(options.priorityPageLimit),
+    String(options.fullModePageLimit),
+  ].join('|');
+
+  return `${env.bullMqPrefix}:full-audit:reuse-cache:v${CACHE_VERSION}:${sha1(`${websiteKey}|${scopeKey}`)}`;
+}
+
 export function encodeCachedFullAuditPageReport(input: {
   websiteUrl: string;
   pageUrl: string;
@@ -106,6 +161,29 @@ export function decodeCachedFullAuditPageReport(raw: string): CachedFullAuditPag
       cachedAt: parsed.cachedAt,
       report,
     };
+  } catch {
+    return null;
+  }
+}
+
+export function encodeCachedCompletedFullAuditSnapshot(snapshot: CachedCompletedFullAuditSnapshot): string {
+  const storedPayload: StoredCachedCompletedFullAuditSnapshot = {
+    version: CACHE_VERSION,
+    cachedAt: snapshot.cachedAt,
+    snapshotGzipBase64: gzipSync(Buffer.from(JSON.stringify(snapshot), 'utf8')).toString('base64'),
+  };
+
+  return JSON.stringify(storedPayload);
+}
+
+export function decodeCachedCompletedFullAuditSnapshot(raw: string): CachedCompletedFullAuditSnapshot | null {
+  try {
+    const parsed = JSON.parse(raw) as StoredCachedCompletedFullAuditSnapshot;
+    if (parsed.version !== CACHE_VERSION || !parsed.snapshotGzipBase64) {
+      return null;
+    }
+
+    return JSON.parse(gunzipSync(Buffer.from(parsed.snapshotGzipBase64, 'base64')).toString('utf8')) as CachedCompletedFullAuditSnapshot;
   } catch {
     return null;
   }
@@ -213,6 +291,69 @@ export async function setCachedFullAuditPageReport(options: {
       websiteUrl: normalizeWebsiteCacheUrl(options.websiteUrl),
       pageUrl: normalizePageCacheUrl(options.pageUrl),
       device: options.device,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+export async function getCachedCompletedFullAuditSnapshot(options: {
+  websiteUrl: string;
+  planId: string;
+  selectedDevice?: string | null;
+  totalPageLimit: number;
+  priorityPageLimit: number;
+  fullModePageLimit: number;
+}): Promise<CachedCompletedFullAuditSnapshot | null> {
+  const client = await getRedisClient();
+  if (!client) {
+    return null;
+  }
+
+  try {
+    const raw = await client.get(buildFullAuditReuseCacheKey(options));
+    if (!raw) {
+      return null;
+    }
+
+    return decodeCachedCompletedFullAuditSnapshot(raw);
+  } catch (error) {
+    auditCacheLogger.warn('Failed to read reusable completed audit snapshot from Redis cache.', {
+      websiteUrl: normalizeWebsiteCacheUrl(options.websiteUrl),
+      planId: options.planId,
+      selectedDevice: options.selectedDevice || 'all-devices',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+export async function setCachedCompletedFullAuditSnapshot(
+  snapshot: CachedCompletedFullAuditSnapshot,
+): Promise<void> {
+  const client = await getRedisClient();
+  if (!client) {
+    return;
+  }
+
+  try {
+    await client.set(
+      buildFullAuditReuseCacheKey({
+        websiteUrl: snapshot.websiteUrl,
+        planId: snapshot.planId,
+        selectedDevice: snapshot.selectedDevice,
+        totalPageLimit: snapshot.totalPageLimit,
+        priorityPageLimit: snapshot.priorityPageLimit,
+        fullModePageLimit: snapshot.fullModePageLimit,
+      }),
+      encodeCachedCompletedFullAuditSnapshot(snapshot),
+      'PX',
+      env.fullAuditCacheTtlMs,
+    );
+  } catch (error) {
+    auditCacheLogger.warn('Failed to store reusable completed audit snapshot in Redis cache.', {
+      websiteUrl: normalizeWebsiteCacheUrl(snapshot.websiteUrl),
+      planId: snapshot.planId,
+      selectedDevice: snapshot.selectedDevice || 'all-devices',
       error: error instanceof Error ? error.message : String(error),
     });
   }

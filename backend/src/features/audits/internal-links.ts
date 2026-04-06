@@ -4,6 +4,7 @@ import * as cheerio from 'cheerio';
 import { logger } from '../../config/logger.ts';
 
 const internalLinksLogger = logger.child('feature:audits:internal-links');
+const NON_HTML_ASSET_PATTERN = /\.(css|js|png|jpg|jpeg|gif|svg|ico|pdf|zip|exe|woff|woff2|ttf|xml)$/i;
 
 export interface InternalLinksExtractionResult {
   success: boolean;
@@ -18,6 +19,13 @@ export interface InternalLinksExtractorOptions {
   delayMs?: number;
   timeout?: number;
   maxRetries?: number;
+}
+
+export function extractSitemapLocs(xmlContent: string): string[] {
+  const matches = String(xmlContent || '').matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi);
+  return [...matches]
+    .map((match) => match[1]?.trim())
+    .filter((value): value is string => Boolean(value));
 }
 
 export class InternalLinksExtractor {
@@ -71,7 +79,7 @@ export class InternalLinksExtractor {
             const cleanUrl = fullUrl.href.replace(/\/$/, '');
             if (cleanUrl === origin) return;
             
-            if (!/\.(css|js|png|jpg|jpeg|gif|svg|ico|pdf|zip|exe|woff|woff2|ttf)$/i.test(cleanUrl)) {
+            if (!/\.(css|js|png|jpg|jpeg|gif|svg|ico|pdf|zip|exe|woff|woff2|ttf|xml)$/i.test(cleanUrl)) {
               linkSet.add(cleanUrl);
             }
           } catch (e) { /* Skip invalid URLs */ }
@@ -115,7 +123,7 @@ export class InternalLinksExtractor {
         const cleanUrl = fullUrl.href.replace(/\/$/, '');
         if (cleanUrl === origin) return;
 
-        if (!/\.(css|js|png|jpg|jpeg|gif|svg|ico|pdf|zip|exe|woff|woff2|ttf)$/i.test(cleanUrl)) {
+        if (!/\.(css|js|png|jpg|jpeg|gif|svg|ico|pdf|zip|exe|woff|woff2|ttf|xml)$/i.test(cleanUrl)) {
           links.add(cleanUrl);
         }
       } catch (e) { /* Skip invalid URLs */ }
@@ -161,6 +169,113 @@ export class InternalLinksExtractor {
 
   private async delay(): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, this.config.delayMs));
+  }
+
+  private normalizeInternalUrl(url: string): string | null {
+    if (!this.baseOrigin) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(url, this.baseOrigin);
+      if (parsed.origin !== this.baseOrigin) {
+        return null;
+      }
+
+      parsed.hash = '';
+      parsed.search = '';
+
+      const normalized = parsed.href.replace(/\/$/, '');
+      if (!normalized || normalized === this.baseOrigin || NON_HTML_ASSET_PATTERN.test(normalized)) {
+        return null;
+      }
+
+      return normalized;
+    } catch {
+      return null;
+    }
+  }
+
+  private async extractLinksFromSitemap(baseUrl: string): Promise<string[]> {
+    const origin = new URL(baseUrl).origin;
+    const sitemapQueue = [`${origin}/sitemap.xml`];
+    const visitedSitemaps = new Set<string>();
+    const results: string[] = [];
+
+    while (sitemapQueue.length > 0 && visitedSitemaps.size < 5 && results.length < this.config.maxLinks) {
+      const sitemapUrl = sitemapQueue.shift();
+      if (!sitemapUrl || visitedSitemaps.has(sitemapUrl)) {
+        continue;
+      }
+
+      visitedSitemaps.add(sitemapUrl);
+
+      try {
+        const response = await axios.get(sitemapUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; SilverSurfersBot/1.0)',
+            Accept: 'application/xml,text/xml;q=0.9,*/*;q=0.8',
+          },
+          timeout: this.config.timeout,
+          responseType: 'text',
+        });
+
+        const locs = extractSitemapLocs(response.data);
+        for (const loc of locs) {
+          if (results.length >= this.config.maxLinks) {
+            break;
+          }
+
+          const normalized = this.normalizeInternalUrl(loc);
+          if (normalized) {
+            results.push(normalized);
+            continue;
+          }
+
+          try {
+            const nested = new URL(loc, origin);
+            if (nested.origin === origin && nested.pathname.toLowerCase().endsWith('.xml') && !visitedSitemaps.has(nested.href)) {
+              sitemapQueue.push(nested.href);
+            }
+          } catch {
+            // Ignore invalid nested sitemap locations.
+          }
+        }
+      } catch (error) {
+        internalLinksLogger.debug(`Sitemap fetch failed for ${sitemapUrl}`, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return results;
+  }
+
+  private async supplementResultsFromSitemap(baseUrl: string): Promise<void> {
+    if (this.results.length >= this.config.maxLinks) {
+      return;
+    }
+
+    const sitemapLinks = await this.extractLinksFromSitemap(baseUrl);
+    let addedCount = 0;
+
+    for (const link of sitemapLinks) {
+      if (this.results.length >= this.config.maxLinks) {
+        break;
+      }
+
+      if (this.visited.has(link)) {
+        continue;
+      }
+
+      this.visited.add(link);
+      this.results.push({ url: link, depth: 1, source: 'sitemap' });
+      addedCount += 1;
+    }
+
+    if (addedCount > 0) {
+      internalLinksLogger.info(`Supplemented internal links from sitemap.xml. Added ${addedCount} URLs.`);
+    }
   }
 
   public async extractInternalLinks(baseUrl: string): Promise<InternalLinksExtractionResult> {
@@ -212,6 +327,10 @@ export class InternalLinksExtractor {
         }
         
         processIndex++;
+      }
+
+      if (this.results.length < this.config.maxLinks) {
+        await this.supplementResultsFromSitemap(baseUrl);
       }
 
       internalLinksLogger.info(`Extraction complete! Found a total of ${this.results.length} internal links.`);

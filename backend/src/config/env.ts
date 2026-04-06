@@ -197,7 +197,7 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     fullAuditFullModePageLimit: parseBoundedNumber(source.FULL_AUDIT_FULL_MODE_PAGE_LIMIT, 2, 0, 20),
     fullAuditMaxFullFailuresPerDevice: parseBoundedNumber(source.FULL_AUDIT_MAX_FULL_FAILURES_PER_DEVICE, 2, 1, 20),
     fullAuditMaxFullFailuresPerAudit: parseBoundedNumber(source.FULL_AUDIT_MAX_FULL_FAILURES_PER_AUDIT, 3, 1, 50),
-    fullAuditScannerCooldownMs: parseBoundedNumber(source.FULL_AUDIT_SCANNER_COOLDOWN_MS, 1500, 0, 60000),
+    fullAuditScannerCooldownMs: parseBoundedNumber(source.FULL_AUDIT_SCANNER_COOLDOWN_MS, 250, 0, 60000),
     fullAuditCacheTtlMs: parseBoundedNumber(source.FULL_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000, 60_000, 7 * 24 * 60 * 60 * 1000),
     queueCleanupIntervalMs: parseNumber(source.QUEUE_CLEANUP_INTERVAL_MS, 5 * 60 * 1000),
     queueMaintenanceIntervalMs: parseNumber(source.QUEUE_MAINTENANCE_INTERVAL_MS, 30 * 1000),

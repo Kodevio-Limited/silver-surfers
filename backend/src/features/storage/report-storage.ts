@@ -81,6 +81,17 @@ export function sanitizeStorageObjectPath(value: string): string {
     .join('/');
 }
 
+export function sanitizeStorageFileName(value: string, fallback = 'file'): string {
+  const normalizedValue = String(value || '').replace(/\\/g, '/');
+  const parsed = path.posix.parse(path.posix.basename(normalizedValue));
+  const name = sanitizeStoragePathSegment(parsed.name, fallback);
+  const extension = parsed.ext
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, '');
+
+  return `${name}${extension}`;
+}
+
 export function buildStoragePrefix({
   basePrefix = process.env.AWS_S3_PREFIX || 'silver-surfers',
   folderPath = '',
@@ -165,7 +176,7 @@ function readS3Config(source: NodeJS.ProcessEnv = process.env): S3Config {
     region: source.AWS_REGION?.trim(),
     endpoint: source.AWS_S3_ENDPOINT?.trim() || undefined,
     forcePathStyle: source.AWS_S3_FORCE_PATH_STYLE === 'true',
-    urlMode: source.AWS_S3_URL_MODE?.trim() === 'signed' ? 'signed' : 'object',
+    urlMode: source.AWS_S3_URL_MODE?.trim() === 'object' ? 'object' : 'signed',
     accessKeyId: source.AWS_ACCESS_KEY_ID?.trim() || undefined,
     secretAccessKey: source.AWS_SECRET_ACCESS_KEY?.trim() || undefined,
     sessionToken: source.AWS_SESSION_TOKEN?.trim() || undefined,
@@ -216,6 +227,67 @@ export async function createS3AccessUrl(options: {
     endpoint: options.endpoint || config.endpoint,
     forcePathStyle: options.forcePathStyle ?? config.forcePathStyle,
   });
+}
+
+async function readS3BodyAsBuffer(
+  body: unknown,
+): Promise<Buffer> {
+  if (!body) {
+    return Buffer.alloc(0);
+  }
+
+  if (typeof (body as { transformToByteArray?: () => Promise<Uint8Array> }).transformToByteArray === 'function') {
+    const bytes = await (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray();
+    return Buffer.from(bytes);
+  }
+
+  if (Buffer.isBuffer(body)) {
+    return body;
+  }
+
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const stream = body as NodeJS.ReadableStream;
+
+    stream.on('data', (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
+}
+
+export async function downloadS3Object(options: {
+  bucket: string;
+  region: string;
+  key: string;
+  endpoint?: string;
+  forcePathStyle?: boolean;
+}): Promise<{
+  body: Buffer;
+  contentType?: string;
+  contentLength?: number;
+}> {
+  const config = readS3Config();
+  const { S3Client, GetObjectCommand } = await getS3Runtime();
+  const client = new S3Client(buildS3ClientConfig({
+    ...config,
+    bucket: options.bucket,
+    region: options.region,
+    endpoint: options.endpoint || config.endpoint,
+    forcePathStyle: options.forcePathStyle ?? config.forcePathStyle,
+  }));
+
+  const result = await client.send(new GetObjectCommand({
+    Bucket: options.bucket,
+    Key: options.key,
+  }));
+
+  return {
+    body: await readS3BodyAsBuffer(result.Body),
+    contentType: result.ContentType,
+    contentLength: typeof result.ContentLength === 'number' ? result.ContentLength : undefined,
+  };
 }
 
 async function getS3Runtime() {
@@ -287,7 +359,12 @@ export async function uploadFilesToS3(
   const uploadedFiles: UploadedStorageFile[] = [];
 
   for (const file of files) {
-    const normalizedName = sanitizeStorageObjectPath(file.filename || path.basename(file.path));
+    const originalName = file.filename || path.basename(file.path);
+    const normalizedDirectory = sanitizeStorageObjectPath(path.posix.dirname(String(originalName).replace(/\\/g, '/')));
+    const normalizedBaseName = sanitizeStorageFileName(originalName);
+    const normalizedName = normalizedDirectory && normalizedDirectory !== '.'
+      ? `${normalizedDirectory}/${normalizedBaseName}`
+      : normalizedBaseName;
     const key = `${prefix}/${normalizedName}`;
 
     const upload = new Upload({

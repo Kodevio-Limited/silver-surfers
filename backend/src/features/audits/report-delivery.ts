@@ -426,7 +426,7 @@ function buildFromAddress(): string {
 }
 
 function usesSignedS3Urls(): boolean {
-  return process.env.AWS_S3_URL_MODE?.trim() === 'signed';
+  return process.env.AWS_S3_URL_MODE?.trim() !== 'object';
 }
 
 export async function sendAuditReportEmail(options: AuditReportEmailOptions): Promise<AuditReportEmailResult> {

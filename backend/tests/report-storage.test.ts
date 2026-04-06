@@ -6,6 +6,7 @@ import {
   buildS3Uri,
   buildStoragePrefix,
   isS3Configured,
+  sanitizeStorageFileName,
   sanitizeStorageObjectPath,
   sanitizeStoragePathSegment,
 } from '../src/features/storage/report-storage.ts';
@@ -21,6 +22,8 @@ test('storage helpers sanitize prefixes and build stable S3 URIs', () => {
 
   assert.equal(sanitizeStoragePathSegment(' User.Name+test@example.com '), 'user-name-test-example-com');
   assert.equal(sanitizeStorageObjectPath('Reports/Quick Scan.pdf'), 'reports/quick-scan-pdf');
+  assert.equal(sanitizeStorageFileName('Quick Scan.pdf'), 'quick-scan.pdf');
+  assert.equal(sanitizeStorageFileName('AI Executive Summary.PDF'), 'ai-executive-summary.pdf');
   assert.equal(prefix, 'silver-surfers/reports/audit-reports/2026/03/16/user-name-test-at-example-com/1773-home-page');
   assert.equal(buildS3Uri('audit-bucket', prefix), 's3://audit-bucket/silver-surfers/reports/audit-reports/2026/03/16/user-name-test-at-example-com/1773-home-page');
 });

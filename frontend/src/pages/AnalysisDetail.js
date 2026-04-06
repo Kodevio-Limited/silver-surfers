@@ -375,9 +375,9 @@ export default function AnalysisDetail() {
                 help="Current litigation-oriented risk classification"
               />
               <StatCard
-                label="Successful Targets"
+                label="Successful Page/Device Targets"
                 value={`${item.successfulTargetCount || 0}/${item.plannedTargetCount || item.pageCount || 0}`}
-                help="Page and device combinations that produced usable results"
+                help="Each page scanned on desktop, mobile, and tablet counts as its own target"
               />
               <StatCard
                 label="Reports"
@@ -425,7 +425,6 @@ export default function AnalysisDetail() {
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <ScoreBadge value={formatStatusLabel(target.status)} tone={getStatusTone(target.status)} />
-                          <ScoreBadge value={`${target.scanModeUsed} mode`} tone={target.scanModeUsed === 'lite' ? 'yellow' : 'gray'} />
                           {typeof target.score === 'number' ? <ScoreBadge value={`Score ${Math.round(target.score)}`} tone={getStatusTone(target.score >= 80 ? 'completed' : target.score >= 70 ? 'needs-improvement' : 'failed')} /> : null}
                         </div>
                       </div>

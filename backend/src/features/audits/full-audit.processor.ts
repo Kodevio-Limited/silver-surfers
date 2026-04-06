@@ -3,8 +3,11 @@ import path from 'node:path';
 
 import { extractInternalLinks } from './internal-links.ts';
 import {
+  type CachedCompletedFullAuditSnapshot,
+  getCachedCompletedFullAuditSnapshot,
   getCachedFullAuditPageReport,
   materializeCachedFullAuditPageReport,
+  setCachedCompletedFullAuditSnapshot,
   setCachedFullAuditPageReport,
 } from './audit-cache.ts';
 import { requestScannerAudit, requestScannerLoadSnapshot } from '../scanner/scanner-client.ts';
@@ -27,7 +30,7 @@ import {
   type FullAuditScannerMode,
 } from './full-audit.helpers.ts';
 import { collectAttachmentsRecursive, sendAuditReportEmail, sendDirectMail, type ReportAttachment } from './report-delivery.ts';
-import { buildStoredReportFilesFromAttachments, mergeStoredReportFilesWithStorage } from './report-files.ts';
+import { buildStoredReportFilesFromAttachments, mergeStoredReportFilesWithStorage, type StoredReportFile } from './report-files.ts';
 import { cleanupLocalReportDirectoryWhenStored } from './report-retention.ts';
 import { checkScoreThreshold } from './threshold-check.ts';
 import {
@@ -42,6 +45,7 @@ import {
   calculateSeniorFriendlinessScore,
   generateCombinedPlatformReport,
   generateAuditAiSummaryPdf,
+  generateLiteAccessibilityReport,
   generateSeniorAccessibilityReport,
   generateSummaryPDF,
   mergePDFsByPlatform,
@@ -114,6 +118,22 @@ function optionalNullableString(value: unknown): string | null | undefined {
 
 function sleep(durationMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, durationMs));
+}
+
+function buildFullAuditPdfFileName(url: string, device: FullAuditDevice): string {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+    const hostname = parsed.hostname.replace(/^www\./, '');
+    let pathname = parsed.pathname.replace(/[^a-zA-Z0-9]/g, '_');
+    if (pathname.length > 40) {
+      pathname = `${pathname.slice(0, 40)}_`;
+    }
+
+    const hash = Buffer.from(url).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+    return `${hostname}${pathname ? `_${pathname}` : ''}_${hash}-${device}.pdf`;
+  } catch {
+    return `report_${device}.pdf`;
+  }
 }
 
 function toFullAuditJobPayload(payload: QueueJobInput): FullAuditJobPayload {
@@ -570,6 +590,33 @@ function applyExecutionSummary(
   record.scanTargets = scanTargets;
 }
 
+function applyCachedCompletedAuditSnapshot(
+  record: AnalysisRecordDocument,
+  snapshot: CachedCompletedFullAuditSnapshot,
+): void {
+  record.status = snapshot.status;
+  record.score = snapshot.score;
+  record.scoreCard = snapshot.scoreCard;
+  record.aiReport = snapshot.aiReport;
+  record.attachmentCount = snapshot.attachmentCount;
+  record.reportDirectory = snapshot.reportDirectory;
+  record.reportStorage = snapshot.reportStorage;
+  record.reportFiles = snapshot.reportFiles;
+  record.emailStatus = 'sent';
+  record.emailError = undefined;
+  record.failureReason = undefined;
+  record.plannedTargetCount = snapshot.plannedTargetCount;
+  record.successfulTargetCount = snapshot.successfulTargetCount;
+  record.degradedTargetCount = snapshot.degradedTargetCount;
+  record.failedTargetCount = snapshot.failedTargetCount;
+  record.scanTargets = snapshot.scanTargets as AnalysisRecordDocument['scanTargets'];
+  record.warnings = [
+    ...snapshot.warnings,
+    'Reused completed website audit results from the last 24 hours.',
+    'AI summary and PDF generation were skipped because cached website results were reused.',
+  ];
+}
+
 async function generatePlatformReports(
   reportsByPlatform: Partial<Record<FullAuditDevice, FullAuditReportEntry[]>>,
   email: string,
@@ -586,7 +633,22 @@ async function generatePlatformReports(
     for (const report of reports) {
       try {
         await new Promise<void>((resolve) => setImmediate(resolve));
-        const pdfResult = await generateSeniorAccessibilityReport({
+        if (report.isLiteVersion) {
+          const litePdfResult = await generateLiteAccessibilityReport(report.jsonReportPath, finalReportFolder);
+          const expectedPdfPath = path.join(finalReportFolder, buildFullAuditPdfFileName(report.url, device));
+
+          if (litePdfResult?.reportPath) {
+            if (litePdfResult.reportPath !== expectedPdfPath) {
+              await fs.copyFile(litePdfResult.reportPath, expectedPdfPath);
+              await fs.unlink(litePdfResult.reportPath).catch(() => undefined);
+            }
+
+            individualPdfPaths.push(expectedPdfPath);
+          }
+          continue;
+        }
+
+        const seniorPdfResult = await generateSeniorAccessibilityReport({
           inputFile: report.jsonReportPath,
           url: report.url,
           email_address: email,
@@ -597,13 +659,14 @@ async function generatePlatformReports(
           planType: planId,
         });
 
-        if (pdfResult?.reportPath) {
-          individualPdfPaths.push(pdfResult.reportPath);
+        if (seniorPdfResult?.reportPath) {
+          individualPdfPaths.push(seniorPdfResult.reportPath);
         }
       } catch (error) {
         fullAuditLogger.error('Failed to generate individual PDF.', {
           url: report.url,
           device,
+          isLiteVersion: Boolean(report.isLiteVersion),
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -867,6 +930,43 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
       finalReportFolder,
     );
 
+    const reusableAuditSnapshot = await getCachedCompletedFullAuditSnapshot({
+      websiteUrl: job.url,
+      planId: effectivePlanId,
+      selectedDevice: job.selectedDevice,
+      totalPageLimit: env.fullAuditTotalPageLimit,
+      priorityPageLimit: env.fullAuditPriorityPageLimit,
+      fullModePageLimit: env.fullAuditFullModePageLimit,
+    });
+
+    if (reusableAuditSnapshot) {
+      applyCachedCompletedAuditSnapshot(record, reusableAuditSnapshot);
+      await updateUsageCounters(record);
+      await record.save().catch((error) => {
+        fullAuditLogger.warn('Failed to persist reused completed audit snapshot.', {
+          taskId: effectiveTaskId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+      fullAuditLogger.info('Reused completed full audit from 24-hour cache.', {
+        email: job.email,
+        url: job.url,
+        taskId: effectiveTaskId,
+        sourceTaskId: reusableAuditSnapshot.sourceTaskId,
+        cachedAt: reusableAuditSnapshot.cachedAt,
+        status: reusableAuditSnapshot.status,
+      });
+
+      return {
+        emailStatus: record.emailStatus || 'sent',
+        attachmentCount: record.attachmentCount || 0,
+        reportDirectory: record.reportDirectory || finalReportFolder,
+        reportStorage: record.reportStorage,
+        scansUsed: 1,
+      };
+    }
+
     const linksToAudit = await extractLinksToAudit(job.url);
     const targetPages = selectFullAuditTargetPages(job.url, linksToAudit, {
       totalPageLimit: env.fullAuditTotalPageLimit,
@@ -977,7 +1077,7 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
 
         let resolvedPageScanResult = pageScanResult;
         if (!resolvedPageScanResult) {
-          if (processedTargetCount > 0 && env.fullAuditScannerCooldownMs > 0) {
+          if (processedTargetCount > 0 && env.fullAuditScannerCooldownMs > 0 && !cachedPageResult) {
             await sleep(env.fullAuditScannerCooldownMs);
           }
 
@@ -1241,6 +1341,33 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
         error: error instanceof Error ? error.message : String(error),
       });
     });
+
+    if (record.status === 'completed' || record.status === 'completed_with_warnings') {
+      await setCachedCompletedFullAuditSnapshot({
+        websiteUrl: job.url,
+        planId: effectivePlanId,
+        selectedDevice: job.selectedDevice,
+        totalPageLimit: env.fullAuditTotalPageLimit,
+        priorityPageLimit: env.fullAuditPriorityPageLimit,
+        fullModePageLimit: env.fullAuditFullModePageLimit,
+        status: record.status as 'completed' | 'completed_with_warnings',
+        cachedAt: new Date().toISOString(),
+        sourceTaskId: record.taskId,
+        score: record.score,
+        scoreCard: record.scoreCard,
+        aiReport: record.aiReport,
+        warnings: Array.isArray(record.warnings) ? record.warnings : [],
+        plannedTargetCount: Number(record.plannedTargetCount || 0),
+        successfulTargetCount: Number(record.successfulTargetCount || 0),
+        degradedTargetCount: Number(record.degradedTargetCount || 0),
+        failedTargetCount: Number(record.failedTargetCount || 0),
+        scanTargets: Array.isArray(record.scanTargets) ? record.scanTargets as Array<Record<string, unknown>> : [],
+        attachmentCount: Number(record.attachmentCount || 0),
+        reportDirectory: record.reportDirectory,
+        reportStorage: record.reportStorage,
+        reportFiles: Array.isArray(record.reportFiles) ? record.reportFiles as StoredReportFile[] : [],
+      });
+    }
 
     if (record.status === 'completed') {
       await maybeSendSealOfApproval(job.email, job.url, effectivePlanId).catch((error) => {

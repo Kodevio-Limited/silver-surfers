@@ -13,7 +13,7 @@ import {
   type AnalysisReportFileView,
   type StoredReportFile,
 } from './report-files.ts';
-import { createS3AccessUrl } from '../storage/report-storage.ts';
+import { downloadS3Object } from '../storage/report-storage.ts';
 
 type ReportOwnerRecord = AnalysisRecordDocument | QuickScanDocument;
 
@@ -118,13 +118,18 @@ export async function sendAnalysisReportFile(
     && record.reportStorage.region
     && file.storageKey
   ) {
-    const accessUrl = await createS3AccessUrl({
+    const s3Object = await downloadS3Object({
       bucket: record.reportStorage.bucket,
       region: record.reportStorage.region,
       key: file.storageKey,
-      signedUrlExpiresInSeconds: record.reportStorage.signedUrlExpiresInSeconds,
     });
-    response.redirect(302, accessUrl);
+
+    response.setHeader('Content-Type', file.contentType || s3Object.contentType || 'application/octet-stream');
+    response.setHeader('Content-Disposition', buildContentDisposition(disposition, path.basename(file.filename)));
+    if (s3Object.contentLength !== undefined) {
+      response.setHeader('Content-Length', String(s3Object.contentLength));
+    }
+    response.send(s3Object.body);
     return true;
   }
 

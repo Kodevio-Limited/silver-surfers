@@ -4,7 +4,10 @@ import fs from 'node:fs/promises';
 
 import {
   buildFullAuditPageCacheKey,
+  buildFullAuditReuseCacheKey,
+  decodeCachedCompletedFullAuditSnapshot,
   decodeCachedFullAuditPageReport,
+  encodeCachedCompletedFullAuditSnapshot,
   encodeCachedFullAuditPageReport,
   materializeCachedFullAuditPageReport,
   normalizePageCacheUrl,
@@ -82,4 +85,70 @@ test('materializeCachedFullAuditPageReport writes a temporary JSON report file',
   const stored = JSON.parse(await fs.readFile(reportPath, 'utf8'));
   assert.equal(stored.requestedUrl, 'https://example.com/contact');
   assert.match(reportPath, /report-example-com-\d+\.json$/);
+});
+
+test('buildFullAuditReuseCacheKey is stable for equivalent website scopes', () => {
+  const first = buildFullAuditReuseCacheKey({
+    websiteUrl: 'https://www.example.com/',
+    planId: 'pro',
+    selectedDevice: null,
+    totalPageLimit: 25,
+    priorityPageLimit: 3,
+    fullModePageLimit: 1,
+  });
+  const second = buildFullAuditReuseCacheKey({
+    websiteUrl: 'https://example.com/about',
+    planId: 'pro',
+    selectedDevice: null,
+    totalPageLimit: 25,
+    priorityPageLimit: 3,
+    fullModePageLimit: 1,
+  });
+
+  assert.equal(first, second);
+});
+
+test('encodeCachedCompletedFullAuditSnapshot and decodeCachedCompletedFullAuditSnapshot preserve reusable audit metadata', () => {
+  const encoded = encodeCachedCompletedFullAuditSnapshot({
+    websiteUrl: 'https://example.com/',
+    planId: 'pro',
+    selectedDevice: null,
+    totalPageLimit: 25,
+    priorityPageLimit: 3,
+    fullModePageLimit: 1,
+    status: 'completed_with_warnings',
+    cachedAt: '2026-04-06T08:00:00.000Z',
+    sourceTaskId: 'task-123',
+    score: 81,
+    warnings: ['Reused from cache.'],
+    plannedTargetCount: 75,
+    successfulTargetCount: 75,
+    degradedTargetCount: 12,
+    failedTargetCount: 0,
+    scanTargets: [{ url: 'https://example.com/', device: 'desktop', status: 'completed' }],
+    attachmentCount: 4,
+    reportDirectory: 's3://bucket/reports/task-123',
+    reportStorage: {
+      provider: 's3',
+      bucket: 'bucket',
+      prefix: 'reports/task-123',
+      objectCount: 4,
+      objects: [],
+    },
+    reportFiles: [
+      {
+        id: 'file-1',
+        filename: 'audit-summary.pdf',
+        storageKey: 'reports/task-123/audit-summary.pdf',
+        contentType: 'application/pdf',
+      },
+    ],
+  });
+
+  const decoded = decodeCachedCompletedFullAuditSnapshot(encoded);
+
+  assert.equal(decoded?.websiteUrl, 'https://example.com/');
+  assert.equal(decoded?.status, 'completed_with_warnings');
+  assert.equal(decoded?.sourceTaskId, 'task-123');
+  assert.equal(decoded?.reportFiles[0]?.filename, 'audit-summary.pdf');
 });
