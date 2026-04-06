@@ -4,6 +4,7 @@ import type { QueueReportStorage } from '../../infrastructure/queues/job-queue.t
 export const FULL_AUDIT_VALID_DEVICES = ['desktop', 'mobile', 'tablet'] as const;
 
 export type FullAuditDevice = typeof FULL_AUDIT_VALID_DEVICES[number];
+export type FullAuditScannerMode = 'full' | 'lite';
 
 export interface FullAuditEmailResult {
   success?: boolean;

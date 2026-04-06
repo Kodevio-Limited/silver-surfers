@@ -53,7 +53,7 @@ const AdminDashboard = () => {
       // Process analysis stats
       const analysis = analysisResult.status === 'fulfilled' ? analysisResult.value.items || [] : [];
       const pendingAnalysis = analysis.filter(a => a.status === 'queued' || a.status === 'processing');
-      const completedAnalysis = analysis.filter(a => a.status === 'completed');
+      const completedAnalysis = analysis.filter(a => a.status === 'completed' || a.status === 'completed_with_warnings');
 
       // Process contact stats
       const contacts = contactsResult.status === 'fulfilled' ? contactsResult.value.items || [] : [];
@@ -151,6 +151,8 @@ const AdminDashboard = () => {
         case 'published':
         case 'completed':
           return 'text-green-600 bg-green-100';
+        case 'completed_with_warnings':
+          return 'text-amber-600 bg-amber-100';
         case 'draft':
         case 'queued':
         case 'processing':

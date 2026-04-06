@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { requestScannerAudit } from '../src/features/scanner/scanner-client.ts';
+import { requestScannerAudit, requestScannerLoadSnapshot } from '../src/features/scanner/scanner-client.ts';
 
 test('requestScannerAudit reuses local reportPath when scanner-service omits inline report payload', async (t) => {
   t.after(async () => {
@@ -77,4 +77,31 @@ test('requestScannerAudit exposes a clear browser configuration error from scann
     assert.equal(result.error, 'The scanner service browser is not configured correctly. Please contact support.');
     assert.equal(result.statusCode, 500);
   }
+});
+
+test('requestScannerLoadSnapshot returns scanner capacity information when the scanner exposes it', async () => {
+  const mockFetch = async () => ({
+    ok: true,
+    json: async () => ({
+      activeAudits: 1,
+      queuedAudits: 2,
+      maxConcurrentAudits: 3,
+      maxQueuedAudits: 8,
+      browserPoolSize: 1,
+      browsersInUse: 1,
+      browserWaiters: 0,
+    }),
+  });
+
+  const result = await requestScannerLoadSnapshot(mockFetch as any);
+
+  assert.deepEqual(result, {
+    activeAudits: 1,
+    queuedAudits: 2,
+    maxConcurrentAudits: 3,
+    maxQueuedAudits: 8,
+    browserPoolSize: 1,
+    browsersInUse: 1,
+    browserWaiters: 0,
+  });
 });

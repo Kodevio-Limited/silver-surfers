@@ -686,11 +686,12 @@ const Subscription = () => {
                             <div className="flex items-center gap-2 mb-2">
                               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                 scan.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                scan.status === 'completed_with_warnings' ? 'bg-amber-100 text-amber-800' :
                                 scan.status === 'failed' ? 'bg-red-100 text-red-800' :
                                 scan.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
                                 'bg-gray-100 text-gray-800'
                               }`}>
-                                {scan.status.charAt(0).toUpperCase() + scan.status.slice(1)}
+                                {scan.status.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase())}
                               </span>
                               {scan.isOwner && (
                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
@@ -725,6 +726,9 @@ const Subscription = () => {
                           <div className="ml-4 flex-shrink-0">
                             {scan.status === 'completed' && (
                               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                            )}
+                            {scan.status === 'completed_with_warnings' && (
+                              <div className="w-2 h-2 bg-amber-500 rounded-full"></div>
                             )}
                             {scan.status === 'failed' && (
                               <div className="w-2 h-2 bg-red-500 rounded-full"></div>

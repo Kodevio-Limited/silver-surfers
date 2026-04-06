@@ -60,6 +60,8 @@ const AdminAnalysis = () => {
     switch (status) {
       case 'completed':
         return 'bg-green-100 text-green-800';
+      case 'completed_with_warnings':
+        return 'bg-amber-100 text-amber-800';
       case 'failed':
         return 'bg-red-100 text-red-800';
       case 'processing':
@@ -99,7 +101,7 @@ const AdminAnalysis = () => {
     return groups;
   }, {});
 
-  const statusOrder = ['queued', 'processing', 'completed', 'failed'];
+  const statusOrder = ['queued', 'processing', 'completed', 'completed_with_warnings', 'failed'];
   const sortedGroups = statusOrder.filter(status => groupedAnalysis[status]);
 
   if (loading) {
@@ -168,6 +170,7 @@ const AdminAnalysis = () => {
             <option value="queued" className="text-gray-900 bg-white">Queued</option>
             <option value="processing" className="text-gray-900 bg-white">Processing</option>
             <option value="completed" className="text-gray-900 bg-white">Completed</option>
+            <option value="completed_with_warnings" className="text-gray-900 bg-white">Completed with warnings</option>
             <option value="failed" className="text-gray-900 bg-white">Failed</option>
           </select>
           <button
@@ -207,11 +210,12 @@ const AdminAnalysis = () => {
                 <h3 className="text-lg font-medium text-gray-900 capitalize flex items-center">
                   <div className={`w-3 h-3 rounded-full mr-3 ${
                     status === 'completed' ? 'bg-green-400' :
+                    status === 'completed_with_warnings' ? 'bg-amber-400' :
                     status === 'failed' ? 'bg-red-400' :
                     status === 'processing' ? 'bg-blue-400 animate-pulse' :
                     'bg-yellow-400'
                   }`}></div>
-                  {status} ({groupedAnalysis[status].length})
+                  {status.replace(/_/g, ' ')} ({groupedAnalysis[status].length})
                 </h3>
               </div>
               <div className="divide-y divide-gray-200">
@@ -224,7 +228,7 @@ const AdminAnalysis = () => {
                             {record.url}
                           </h4>
                           <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(record.status)}`}>
-                            {record.status || 'unknown'}
+                            {(record.status || 'unknown').replace(/_/g, ' ')}
                           </span>
                           <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getEmailStatusColor(record.emailStatus)}`}>
                             Email: {record.emailStatus || 'unknown'}

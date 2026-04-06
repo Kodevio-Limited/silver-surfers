@@ -2,7 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { extractInternalLinks } from './internal-links.ts';
-import { requestScannerAudit } from '../scanner/scanner-client.ts';
+import {
+  getCachedFullAuditPageReport,
+  materializeCachedFullAuditPageReport,
+  setCachedFullAuditPageReport,
+} from './audit-cache.ts';
+import { requestScannerAudit, requestScannerLoadSnapshot } from '../scanner/scanner-client.ts';
 import { generateAuditAiReport } from './ai-reporting.ts';
 import { buildRemediationRoadmap } from './analysis-details.ts';
 import { env } from '../../config/env.ts';
@@ -15,16 +20,24 @@ import {
   applyFullAuditEmailResult,
   buildFullAuditEmailContent,
   buildSealResultsFilePath,
-  finalizeFullAuditRecord,
   resolveDevicesToAudit,
   sanitizePathSegment,
   type FullAuditDevice,
   type FullAuditEmailResult,
+  type FullAuditScannerMode,
 } from './full-audit.helpers.ts';
 import { collectAttachmentsRecursive, sendAuditReportEmail, sendDirectMail, type ReportAttachment } from './report-delivery.ts';
 import { buildStoredReportFilesFromAttachments, mergeStoredReportFilesWithStorage } from './report-files.ts';
 import { cleanupLocalReportDirectoryWhenStored } from './report-retention.ts';
 import { checkScoreThreshold } from './threshold-check.ts';
+import {
+  planFullAuditTargetPages,
+  resolveFullAuditCompletionStatus,
+  selectFullAuditTargetPages,
+  shouldPreferLiteScannerForLoad,
+  type FullAuditExecutionSummary,
+  type FullAuditTargetResult,
+} from './full-audit.strategy.ts';
 import {
   calculateSeniorFriendlinessScore,
   generateCombinedPlatformReport,
@@ -56,21 +69,6 @@ interface InternalLinksExtractionResult {
   details?: string;
 }
 
-interface InternalLinksExtractorInstance {
-  extractInternalLinks(url: string): Promise<InternalLinksExtractionResult>;
-}
-
-interface LighthouseAuditResult {
-  success: boolean;
-  reportPath?: string;
-  error?: string;
-  errorCode?: string;
-}
-
-interface ThresholdCheckResult {
-  pass: boolean;
-}
-
 interface FullAuditReportEntry extends FullAuditPlatformReport {
   scoreCard: AuditScorecard | null;
   isLiteVersion?: boolean;
@@ -80,6 +78,11 @@ interface FullAuditPageScanResult {
   success: boolean;
   reportPath?: string;
   isLiteVersion: boolean;
+  scanModeUsed: FullAuditScannerMode;
+  shouldUseLiteForFuture?: boolean;
+  fullFailureCountDelta?: number;
+  degradedReason?: string;
+  fromCache?: boolean;
   error?: string;
   errorCode?: string;
   statusCode?: number;
@@ -205,7 +208,22 @@ async function findOrCreateAnalysisRecord(job: FullAuditJobPayload, planId: stri
   }
 
   record.status = 'processing';
+  record.emailStatus = 'pending';
+  record.emailError = undefined;
+  record.failureReason = undefined;
   record.reportDirectory = finalReportFolder;
+  record.reportStorage = undefined;
+  record.reportFiles = [];
+  record.attachmentCount = 0;
+  record.score = undefined;
+  record.scoreCard = undefined;
+  record.aiReport = undefined;
+  record.warnings = [];
+  record.plannedTargetCount = 0;
+  record.successfulTargetCount = 0;
+  record.degradedTargetCount = 0;
+  record.failedTargetCount = 0;
+  record.scanTargets = [];
   await record.save().catch((error) => {
     fullAuditLogger.warn('Failed to persist processing state for analysis record.', {
       taskId: job.taskId,
@@ -238,12 +256,12 @@ async function extractLinksToAudit(url: string): Promise<string[]> {
 }
 
 async function auditLinkForDevice(
+  websiteUrl: string,
   link: string,
   device: FullAuditDevice,
   finalReportFolder: string,
+  auditResult: FullAuditPageScanResult,
 ): Promise<FullAuditReportEntry | null> {
-  const auditResult = await requestPageAuditWithFallback(link, device);
-  
   if (!auditResult.success || !auditResult.reportPath) {
     fullAuditLogger.error('Skipping failed full-audit page scan.', {
       url: link,
@@ -257,6 +275,13 @@ async function auditLinkForDevice(
   }
 
   const reportData = JSON.parse(await fs.readFile(auditResult.reportPath, 'utf8')) as Record<string, unknown>;
+  await setCachedFullAuditPageReport({
+    websiteUrl,
+    pageUrl: link,
+    device,
+    isLiteVersion: auditResult.isLiteVersion,
+    report: reportData,
+  });
 
   let auditScore: number | null = null;
   let auditScoreCard: AuditScorecard | null = null;
@@ -305,7 +330,56 @@ function shouldFallbackToLiteScanner(errorCode: string | undefined): boolean {
 async function requestPageAuditWithFallback(
   link: string,
   device: FullAuditDevice,
+  preferredMode: FullAuditScannerMode,
+  options?: {
+    isHomepage?: boolean;
+    allowFullRetry?: boolean;
+  },
 ): Promise<FullAuditPageScanResult> {
+  if (preferredMode === 'lite') {
+    const liteAttempt = await requestScannerAudit({
+      url: link,
+      device,
+      format: 'json',
+      includeReport: true,
+      isLiteVersion: true,
+    });
+
+    return {
+      ...liteAttempt,
+      isLiteVersion: true,
+      scanModeUsed: 'lite',
+      shouldUseLiteForFuture: true,
+    };
+  }
+
+  if (!options?.isHomepage) {
+    const scannerLoad = await requestScannerLoadSnapshot();
+    if (shouldPreferLiteScannerForLoad(scannerLoad, { isHomepage: options?.isHomepage })) {
+      fullAuditLogger.warn('Using lite scanner for full-audit target because scanner backlog is high.', {
+        url: link,
+        device,
+        scannerLoad,
+      });
+
+      const liteAttempt = await requestScannerAudit({
+        url: link,
+        device,
+        format: 'json',
+        includeReport: true,
+        isLiteVersion: true,
+      });
+
+      return {
+        ...liteAttempt,
+        isLiteVersion: true,
+        scanModeUsed: 'lite',
+        shouldUseLiteForFuture: false,
+        degradedReason: 'Scanner backlog was high, so this target used the lite scanner.',
+      };
+    }
+  }
+
   const firstAttempt = await requestScannerAudit({
     url: link,
     device,
@@ -317,6 +391,9 @@ async function requestPageAuditWithFallback(
     return {
       ...firstAttempt,
       isLiteVersion: false,
+      scanModeUsed: 'full',
+      shouldUseLiteForFuture: false,
+      fullFailureCountDelta: 0,
     };
   }
 
@@ -327,6 +404,51 @@ async function requestPageAuditWithFallback(
     statusCode: firstAttempt.statusCode,
     error: firstAttempt.error,
   });
+
+  if (!options?.allowFullRetry) {
+    if (!shouldFallbackToLiteScanner(firstAttempt.errorCode)) {
+      return {
+        ...firstAttempt,
+        isLiteVersion: false,
+        scanModeUsed: 'full',
+        shouldUseLiteForFuture: false,
+        fullFailureCountDelta: 1,
+      };
+    }
+
+    fullAuditLogger.warn('Skipping second full-scan attempt for non-homepage target; falling back to lite scanner.', {
+      url: link,
+      device,
+    });
+
+    const liteAttempt = await requestScannerAudit({
+      url: link,
+      device,
+      format: 'json',
+      includeReport: true,
+      isLiteVersion: true,
+    });
+
+    if (liteAttempt.success) {
+      return {
+        ...liteAttempt,
+        isLiteVersion: true,
+        scanModeUsed: 'lite',
+        shouldUseLiteForFuture: false,
+        fullFailureCountDelta: 1,
+        degradedReason: 'A non-homepage full scan failed, so it switched directly to lite mode to keep the audit fast.',
+      };
+    }
+
+    return {
+      ...liteAttempt,
+      isLiteVersion: true,
+      scanModeUsed: 'lite',
+      shouldUseLiteForFuture: false,
+      fullFailureCountDelta: 1,
+      degradedReason: 'A non-homepage full scan failed, and its lite fallback also failed.',
+    };
+  }
 
   await sleep(1_500);
 
@@ -345,6 +467,9 @@ async function requestPageAuditWithFallback(
     return {
       ...secondAttempt,
       isLiteVersion: false,
+      scanModeUsed: 'full',
+      shouldUseLiteForFuture: false,
+      fullFailureCountDelta: 0,
     };
   }
 
@@ -352,6 +477,9 @@ async function requestPageAuditWithFallback(
     return {
       ...secondAttempt,
       isLiteVersion: false,
+      scanModeUsed: 'full',
+      shouldUseLiteForFuture: false,
+      fullFailureCountDelta: 1,
     };
   }
 
@@ -379,13 +507,67 @@ async function requestPageAuditWithFallback(
     return {
       ...liteAttempt,
       isLiteVersion: true,
+      scanModeUsed: 'lite',
+      shouldUseLiteForFuture: true,
+      fullFailureCountDelta: 1,
+      degradedReason: 'Full scanner failed repeatedly, so the target fell back to lite mode.',
     };
   }
 
   return {
     ...liteAttempt,
     isLiteVersion: true,
+    scanModeUsed: 'lite',
+    shouldUseLiteForFuture: true,
+    fullFailureCountDelta: 1,
+    degradedReason: 'Full scanner failed repeatedly, and lite fallback also failed.',
   };
+}
+
+function addAuditWarning(warnings: Set<string>, message: string | undefined): void {
+  if (!message) {
+    return;
+  }
+
+  const normalized = String(message).trim();
+  if (normalized) {
+    warnings.add(normalized);
+  }
+}
+
+function buildFailedTargetResult(
+  target: { url: string; isHomepage: boolean },
+  device: FullAuditDevice,
+  scanModeUsed: FullAuditScannerMode,
+  error: string,
+  options?: {
+    errorCode?: string;
+    statusCode?: number;
+  },
+): FullAuditTargetResult {
+  return {
+    url: target.url,
+    device,
+    isHomepage: target.isHomepage,
+    scanModeUsed,
+    status: 'failed',
+    failureReason: error,
+    ...(options?.errorCode ? { errorCode: options.errorCode } : {}),
+    ...(typeof options?.statusCode === 'number' ? { statusCode: options.statusCode } : {}),
+  };
+}
+
+function applyExecutionSummary(
+  record: AnalysisRecordDocument,
+  summary: FullAuditExecutionSummary,
+  scanTargets: FullAuditTargetResult[],
+): void {
+  record.plannedTargetCount = summary.plannedTargetCount;
+  record.successfulTargetCount = summary.successfulTargetCount;
+  record.degradedTargetCount = summary.degradedTargetCount;
+  record.failedTargetCount = summary.failedTargetCount;
+  record.warnings = [...summary.warnings];
+  record.scanTargets = scanTargets;
 }
 
 async function generatePlatformReports(
@@ -636,7 +818,7 @@ async function updateUsageCounters(record: AnalysisRecordDocument): Promise<void
     return;
   }
 
-  if (record.status === 'completed') {
+  if (record.status === 'completed' || record.status === 'completed_with_warnings') {
     await Subscription.findOneAndUpdate(
       { user: record.user, status: { $in: ['active', 'trialing'] } },
       { $inc: { 'usage.totalScans': 1 } },
@@ -686,13 +868,42 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
     );
 
     const linksToAudit = await extractLinksToAudit(job.url);
+    const targetPages = selectFullAuditTargetPages(job.url, linksToAudit, {
+      totalPageLimit: env.fullAuditTotalPageLimit,
+      priorityPageLimit: env.fullAuditPriorityPageLimit,
+    });
+    const plannedTargetPages = planFullAuditTargetPages(targetPages, {
+      fullModePageLimit: env.fullAuditFullModePageLimit,
+    });
     const devicesToAudit = resolveDevicesToAudit(effectivePlanId, job.selectedDevice);
     const reportsByPlatform: Partial<Record<FullAuditDevice, FullAuditReportEntry[]>> = {};
+    const scanTargets: FullAuditTargetResult[] = [];
+    const warningSet = new Set<string>();
+    let successfulTargetCount = 0;
+    let degradedTargetCount = 0;
+    let failedTargetCount = 0;
+    let globalFullFailureCount = 0;
+    let forceLiteForRemainingNonHomepage = false;
+    let processedTargetCount = 0;
+    const deviceFullFailureCounts = devicesToAudit.reduce<Record<FullAuditDevice, number>>((accumulator, device) => {
+      accumulator[device] = 0;
+      return accumulator;
+    }, {} as Record<FullAuditDevice, number>);
+    const deviceScanModes = devicesToAudit.reduce<Record<FullAuditDevice, FullAuditScannerMode>>((accumulator, device) => {
+      accumulator[device] = 'full';
+      return accumulator;
+    }, {} as Record<FullAuditDevice, FullAuditScannerMode>);
 
     fullAuditLogger.info('Resolved pages and devices for full audit.', {
       email: job.email,
       taskId: effectiveTaskId,
-      pageCount: linksToAudit.length,
+      discoveredPageCount: linksToAudit.length,
+      selectedPageCount: plannedTargetPages.length,
+      selectedPages: plannedTargetPages.map((page) => ({
+        url: page.url,
+        priorityBucket: page.priorityBucket,
+        preferredScanMode: page.preferredScanMode,
+      })),
       devices: devicesToAudit,
       crawlScope: {
         maxPages: env.fullAuditMaxPages,
@@ -703,12 +914,142 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
       },
     });
 
-    for (const link of linksToAudit) {
+    if (plannedTargetPages.length === 0) {
+      throw new Error('No auditable pages were found for the full audit.');
+    }
+
+    const plannedLitePageCount = plannedTargetPages.filter((page) => page.preferredScanMode === 'lite').length;
+    if (plannedLitePageCount > 0) {
+      addAuditWarning(
+        warningSet,
+        `To keep the audit faster, ${plannedLitePageCount} lower-priority page(s) were scheduled in lite mode from the start.`,
+      );
+    }
+
+    for (const targetPage of plannedTargetPages) {
       for (const device of devicesToAudit) {
-        const reportEntry = await auditLinkForDevice(link, device, finalReportFolder).catch((error) => {
-          fullAuditLogger.error('Unexpected error while auditing page.', {
-            url: link,
+        const preferredMode = targetPage.preferredScanMode === 'lite'
+          ? 'lite'
+          : (!targetPage.isHomepage && forceLiteForRemainingNonHomepage)
+          ? 'lite'
+          : deviceScanModes[device];
+        const cachedPageResult = await getCachedFullAuditPageReport({
+          websiteUrl: job.url,
+          pageUrl: targetPage.url,
+          device,
+        }).catch(() => null);
+
+        const pageScanResult = cachedPageResult
+          ? await materializeCachedFullAuditPageReport(cachedPageResult)
+            .then((reportPath) => {
+              fullAuditLogger.info('Reusing cached full-audit page result from Redis.', {
+                taskId: effectiveTaskId,
+                websiteUrl: job.url,
+                url: targetPage.url,
+                device,
+                cachedAt: cachedPageResult.cachedAt,
+                isLiteVersion: cachedPageResult.isLiteVersion,
+              });
+
+              return {
+                success: true,
+                reportPath,
+                isLiteVersion: cachedPageResult.isLiteVersion,
+                scanModeUsed: cachedPageResult.isLiteVersion ? 'lite' : 'full',
+                shouldUseLiteForFuture: cachedPageResult.isLiteVersion,
+                degradedReason: cachedPageResult.isLiteVersion
+                  ? 'A cached lite page scan from the last 24 hours was reused.'
+                  : undefined,
+                fromCache: true,
+              } satisfies FullAuditPageScanResult;
+            })
+            .catch((error) => {
+              fullAuditLogger.warn('Failed to materialize cached page audit report. Falling back to live scan.', {
+                taskId: effectiveTaskId,
+                websiteUrl: job.url,
+                url: targetPage.url,
+                device,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return null;
+            })
+          : null;
+
+        let resolvedPageScanResult = pageScanResult;
+        if (!resolvedPageScanResult) {
+          if (processedTargetCount > 0 && env.fullAuditScannerCooldownMs > 0) {
+            await sleep(env.fullAuditScannerCooldownMs);
+          }
+
+          resolvedPageScanResult = await requestPageAuditWithFallback(targetPage.url, device, preferredMode, {
+            isHomepage: targetPage.isHomepage,
+            allowFullRetry: targetPage.allowFullRetry,
+          }).catch((error) => {
+            fullAuditLogger.error('Unexpected error while auditing page.', {
+              url: targetPage.url,
+              device,
+              mode: preferredMode,
+              taskId: effectiveTaskId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return {
+              success: false,
+              isLiteVersion: preferredMode === 'lite',
+              scanModeUsed: preferredMode,
+              error: error instanceof Error ? error.message : String(error),
+            } satisfies FullAuditPageScanResult;
+          });
+        }
+
+        processedTargetCount += 1;
+
+        if (resolvedPageScanResult.fullFailureCountDelta) {
+          deviceFullFailureCounts[device] += resolvedPageScanResult.fullFailureCountDelta;
+          globalFullFailureCount += resolvedPageScanResult.fullFailureCountDelta;
+        }
+
+        if (resolvedPageScanResult.fromCache) {
+          addAuditWarning(warningSet, 'Some page scans were reused from the last 24 hours of Redis cache.');
+        }
+
+        if (resolvedPageScanResult.degradedReason) {
+          addAuditWarning(warningSet, resolvedPageScanResult.degradedReason);
+        }
+
+        if (resolvedPageScanResult.shouldUseLiteForFuture && deviceScanModes[device] !== 'lite') {
+          deviceScanModes[device] = 'lite';
+          fullAuditLogger.warn('Switching full audit device to lite scanner mode for remaining pages.', {
+            taskId: effectiveTaskId,
             device,
+            url: targetPage.url,
+          });
+          addAuditWarning(
+            warningSet,
+            `Full scanner became unstable on ${device}, so remaining ${device} pages were scanned in lite mode.`,
+          );
+        }
+
+        if (deviceFullFailureCounts[device] >= env.fullAuditMaxFullFailuresPerDevice && deviceScanModes[device] !== 'lite') {
+          deviceScanModes[device] = 'lite';
+          addAuditWarning(
+            warningSet,
+            `The ${device} device exceeded the full-scan failure budget, so remaining ${device} pages were scanned in lite mode.`,
+          );
+        }
+
+        if (!forceLiteForRemainingNonHomepage && globalFullFailureCount >= env.fullAuditMaxFullFailuresPerAudit) {
+          forceLiteForRemainingNonHomepage = true;
+          addAuditWarning(
+            warningSet,
+            'The overall full-scan failure budget was exceeded, so remaining non-homepage pages were scanned in lite mode.',
+          );
+        }
+
+        const reportEntry = await auditLinkForDevice(job.url, targetPage.url, device, finalReportFolder, resolvedPageScanResult).catch((error) => {
+          fullAuditLogger.error('Unexpected error while persisting page audit.', {
+            url: targetPage.url,
+            device,
+            mode: deviceScanModes[device],
             taskId: effectiveTaskId,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -716,8 +1057,34 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
         });
 
         if (!reportEntry) {
+          failedTargetCount += 1;
+          scanTargets.push(buildFailedTargetResult(
+            targetPage,
+            device,
+            resolvedPageScanResult.scanModeUsed,
+            resolvedPageScanResult.error || 'Page scan did not produce a usable report.',
+            {
+              errorCode: resolvedPageScanResult.errorCode,
+              statusCode: resolvedPageScanResult.statusCode,
+            },
+          ));
+          addAuditWarning(warningSet, 'One or more page/device targets failed and were omitted from the final report package.');
           continue;
         }
+
+        successfulTargetCount += 1;
+        if (resolvedPageScanResult.scanModeUsed === 'lite') {
+          degradedTargetCount += 1;
+        }
+
+        scanTargets.push({
+          url: targetPage.url,
+          device,
+          isHomepage: targetPage.isHomepage,
+          scanModeUsed: resolvedPageScanResult.scanModeUsed,
+          status: 'completed',
+          score: reportEntry.score,
+        });
 
         if (!reportsByPlatform[device]) {
           reportsByPlatform[device] = [];
@@ -725,6 +1092,36 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
 
         reportsByPlatform[device]?.push(reportEntry);
       }
+    }
+
+    const executionSummary: FullAuditExecutionSummary = {
+      plannedTargetCount: plannedTargetPages.length * devicesToAudit.length,
+      successfulTargetCount,
+      degradedTargetCount,
+      failedTargetCount,
+      warnings: [...warningSet],
+    };
+    applyExecutionSummary(record, executionSummary, scanTargets);
+
+    if (successfulTargetCount <= 0) {
+      record.status = 'failed';
+      record.emailStatus = 'failed';
+      record.failureReason = 'Full audit failed to produce any usable page/device results.';
+      record.emailError = 'Email delivery was skipped because the audit produced no usable results.';
+      await updateUsageCounters(record);
+      await record.save().catch((error) => {
+        fullAuditLogger.warn('Failed to persist no-results full-audit outcome.', {
+          taskId: effectiveTaskId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+      return {
+        emailStatus: record.emailStatus || 'failed',
+        attachmentCount: 0,
+        reportDirectory: record.reportDirectory || finalReportFolder,
+        scansUsed: 1,
+      };
     }
 
     await generatePlatformReports(reportsByPlatform, job.email, effectivePlanId, finalReportFolder);
@@ -786,35 +1183,57 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
 
     record.attachmentCount = Array.isArray(attachmentsPreview) ? attachmentsPreview.length : 0;
     record.reportFiles = buildStoredReportFilesFromAttachments(Array.isArray(attachmentsPreview) ? attachmentsPreview : []);
-    record.emailStatus = 'sending';
-    await record.save().catch((error) => {
-      fullAuditLogger.warn('Failed to persist full-audit attachment preview metadata.', {
-        taskId: effectiveTaskId,
-        error: error instanceof Error ? error.message : String(error),
+    const baseStatus = resolveFullAuditCompletionStatus(executionSummary);
+
+    if (record.attachmentCount > 0) {
+      record.emailStatus = 'sending';
+      await record.save().catch((error) => {
+        fullAuditLogger.warn('Failed to persist full-audit attachment preview metadata.', {
+          taskId: effectiveTaskId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
-    });
 
-    const sendResult = await sendAuditEmail(job.email, effectivePlanId, job.selectedDevice, finalReportFolder)
-      .catch((error) => ({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      }));
+      const sendResult = await sendAuditEmail(job.email, effectivePlanId, job.selectedDevice, finalReportFolder)
+        .catch((error) => ({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        }));
 
-    if ('success' in sendResult && sendResult.success) {
-      await sleep(10_000);
-      applyFullAuditEmailResult(record, sendResult as FullAuditEmailResult, finalReportFolder);
-      record.reportFiles = mergeStoredReportFilesWithStorage(
-        buildStoredReportFilesFromAttachments(Array.isArray(attachmentsPreview) ? attachmentsPreview : []),
-        (sendResult as FullAuditEmailResult).storage,
-      );
-      finalizeFullAuditRecord(record, sendResult as FullAuditEmailResult);
+      if ('success' in sendResult && sendResult.success) {
+        await sleep(10_000);
+        applyFullAuditEmailResult(record, sendResult as FullAuditEmailResult, finalReportFolder);
+        record.reportFiles = mergeStoredReportFilesWithStorage(
+          buildStoredReportFilesFromAttachments(Array.isArray(attachmentsPreview) ? attachmentsPreview : []),
+          (sendResult as FullAuditEmailResult).storage,
+        );
+
+        const storageWarnings = (sendResult as FullAuditEmailResult).storageErrors || [];
+        if (storageWarnings.length > 0) {
+          addAuditWarning(warningSet, `Report storage completed with warnings: ${storageWarnings.join(' | ')}`);
+        }
+      } else {
+        const emailFailureMessage = (sendResult as { error?: string }).error || 'Email delivery failed';
+        record.emailStatus = 'failed';
+        record.emailError = emailFailureMessage;
+        addAuditWarning(warningSet, `Email delivery failed: ${emailFailureMessage}`);
+      }
     } else {
-      const emailFailureMessage = (sendResult as { error?: string }).error || 'Email delivery failed';
       record.emailStatus = 'failed';
-      record.emailError = emailFailureMessage;
-      record.status = 'failed';
-      record.failureReason = emailFailureMessage;
+      record.emailError = 'Email delivery was skipped because no PDF report files were generated.';
+      addAuditWarning(warningSet, 'PDF report generation produced no files, so email delivery was skipped.');
     }
+
+    executionSummary.warnings = [...warningSet];
+    applyExecutionSummary(record, executionSummary, scanTargets);
+    record.status = resolveFullAuditCompletionStatus(executionSummary);
+    if (baseStatus === 'completed' && record.status === 'completed_with_warnings' && !record.failureReason) {
+      record.failureReason = undefined;
+    }
+    if (record.status !== 'failed') {
+      record.failureReason = undefined;
+    }
+
     await updateUsageCounters(record);
     await record.save().catch((error) => {
       fullAuditLogger.warn('Failed to persist final full-audit record state.', {

@@ -7,6 +7,7 @@ import Subscription from '../../models/subscription.model.ts';
 import User from '../../models/user.model.ts';
 import type { AuditAiReport } from './ai-reporting.ts';
 import type { AuditScorecard } from './audit-scorecard.ts';
+import type { FullAuditDevice, FullAuditScannerMode } from './full-audit.helpers.ts';
 
 export interface SubscriptionDocument {
   _id?: string;
@@ -47,6 +48,22 @@ export interface AnalysisRecordDocument {
   emailError?: string;
   reportDirectory?: string;
   reportStorage?: QueueReportStorage;
+  warnings?: string[];
+  plannedTargetCount?: number;
+  successfulTargetCount?: number;
+  degradedTargetCount?: number;
+  failedTargetCount?: number;
+  scanTargets?: Array<{
+    url: string;
+    device: FullAuditDevice;
+    isHomepage?: boolean;
+    scanModeUsed: FullAuditScannerMode;
+    status: 'completed' | 'failed';
+    score?: number | null;
+    failureReason?: string;
+    errorCode?: string;
+    statusCode?: number;
+  }>;
   autoRecoveryAttempts?: number;
   lastAutoRecoveryAt?: Date;
   reportFiles?: Array<{

@@ -14,6 +14,10 @@ router.get('/health', (_request, response) => {
   });
 });
 
+router.get('/load', (_request, response) => {
+  response.json(getScannerLoad());
+});
+
 router.head('/health', (_request, response) => {
   response.status(200).end();
 });

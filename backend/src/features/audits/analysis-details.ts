@@ -12,10 +12,11 @@ import type {
   AuditScorecard,
   AuditScoreStatus,
 } from './audit-scorecard.ts';
+import type { FullAuditDevice, FullAuditScannerMode } from './full-audit.helpers.ts';
 import { buildAnalysisReportFileViews, normalizeStoredReportFiles, type AnalysisReportFileView, type StoredReportFile } from './report-files.ts';
 import { getCertificationEligibility, type CertificationEligibility } from './certification-eligibility.ts';
 
-export type AnalysisStatus = 'queued' | 'processing' | 'completed' | 'failed';
+export type AnalysisStatus = 'queued' | 'processing' | 'completed' | 'completed_with_warnings' | 'failed';
 export type AnalysisEmailStatus = 'pending' | 'sending' | 'sent' | 'failed';
 export type RemediationImpact = 'high' | 'medium' | 'low';
 export type RemediationEffort = 'low' | 'medium' | 'high';
@@ -41,8 +42,36 @@ export interface AnalysisRecordLike {
   reportDirectory?: string;
   reportStorage?: QueueReportStorage;
   reportFiles?: Array<StoredReportFile | Record<string, unknown>>;
+  warnings?: string[];
+  plannedTargetCount?: number;
+  successfulTargetCount?: number;
+  degradedTargetCount?: number;
+  failedTargetCount?: number;
+  scanTargets?: Array<{
+    url: string;
+    device: FullAuditDevice;
+    isHomepage?: boolean;
+    scanModeUsed: FullAuditScannerMode;
+    status: 'completed' | 'failed';
+    score?: number | null;
+    failureReason?: string;
+    errorCode?: string;
+    statusCode?: number;
+  }>;
   createdAt?: Date | string;
   updatedAt?: Date | string;
+}
+
+export interface AnalysisTargetView {
+  url: string;
+  device: FullAuditDevice;
+  isHomepage: boolean;
+  scanModeUsed: FullAuditScannerMode;
+  status: 'completed' | 'failed';
+  score?: number | null;
+  failureReason?: string;
+  errorCode?: string;
+  statusCode?: number;
 }
 
 export interface AnalysisRemediationItem {
@@ -96,6 +125,12 @@ export interface AnalysisDetailView {
   failureReason?: string;
   emailError?: string;
   attachmentCount: number;
+  plannedTargetCount: number;
+  successfulTargetCount: number;
+  degradedTargetCount: number;
+  failedTargetCount: number;
+  warnings: string[];
+  scanTargets: AnalysisTargetView[];
   reportDirectory?: string;
   reportStorage?: QueueReportStorage;
   reportFiles: AnalysisReportFileView[];
@@ -480,7 +515,7 @@ function normalizeDate(value: Date | string | undefined): string | undefined {
 }
 
 function normalizeStatus(value: string | undefined): AnalysisStatus {
-  if (value === 'processing' || value === 'completed' || value === 'failed') {
+  if (value === 'processing' || value === 'completed' || value === 'completed_with_warnings' || value === 'failed') {
     return value;
   }
 
@@ -724,12 +759,30 @@ export function buildAnalysisDetail(record: AnalysisRecordLike): AnalysisDetailV
     ...(record.score !== undefined ? { score: record.score } : {}),
     ...(scorecard?.riskTier ? { riskTier: scorecard.riskTier } : {}),
     ...(scorecard?.scoreStatus ? { scoreStatus: scorecard.scoreStatus } : {}),
-    pageCount: Number(scorecard?.pageCount || 0),
+    pageCount: Number(scorecard?.pageCount || record.successfulTargetCount || 0),
     ...(normalizeDate(record.createdAt) ? { createdAt: normalizeDate(record.createdAt) } : {}),
     ...(normalizeDate(record.updatedAt) ? { updatedAt: normalizeDate(record.updatedAt) } : {}),
     ...(record.failureReason ? { failureReason: record.failureReason } : {}),
     ...(record.emailError ? { emailError: record.emailError } : {}),
     attachmentCount: Number(record.attachmentCount || 0),
+    plannedTargetCount: Number(record.plannedTargetCount || 0),
+    successfulTargetCount: Number(record.successfulTargetCount || 0),
+    degradedTargetCount: Number(record.degradedTargetCount || 0),
+    failedTargetCount: Number(record.failedTargetCount || 0),
+    warnings: Array.isArray(record.warnings) ? record.warnings.map((warning) => String(warning || '').trim()).filter(Boolean) : [],
+    scanTargets: Array.isArray(record.scanTargets)
+      ? record.scanTargets.map((target) => ({
+        url: String(target.url || ''),
+        device: (target.device || 'desktop') as FullAuditDevice,
+        isHomepage: Boolean(target.isHomepage),
+        scanModeUsed: (target.scanModeUsed || 'full') as FullAuditScannerMode,
+        status: target.status === 'failed' ? 'failed' : 'completed',
+        ...(target.score !== undefined ? { score: target.score } : {}),
+        ...(target.failureReason ? { failureReason: String(target.failureReason) } : {}),
+        ...(target.errorCode ? { errorCode: String(target.errorCode) } : {}),
+        ...(target.statusCode !== undefined ? { statusCode: Number(target.statusCode) } : {}),
+      }))
+      : [],
     ...(record.reportDirectory ? { reportDirectory: record.reportDirectory } : {}),
     ...(record.reportStorage ? { reportStorage: record.reportStorage } : {}),
     reportFiles: normalizedReportFiles,

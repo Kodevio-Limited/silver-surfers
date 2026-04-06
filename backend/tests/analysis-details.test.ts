@@ -289,3 +289,52 @@ test('buildAnalysisDetail returns normalized scorecard-backed detail payload for
   assert.equal(detail.reportFiles.length, 1);
   assert.equal(detail.reportFiles[0].displayName, 'audit-summary.pdf');
 });
+
+test('buildAnalysisDetail preserves degraded full-audit metadata for warning-aware UI views', () => {
+  const detail = buildAnalysisDetail({
+    taskId: 'task-degraded',
+    url: 'https://example.com',
+    status: 'completed_with_warnings',
+    emailStatus: 'failed',
+    successfulTargetCount: 4,
+    plannedTargetCount: 6,
+    degradedTargetCount: 2,
+    failedTargetCount: 1,
+    warnings: [
+      'Full scanner became unstable on tablet, so remaining tablet pages were scanned in lite mode.',
+      'Email delivery failed: SMTP temporarily rejected the login.',
+    ],
+    scanTargets: [
+      {
+        url: 'https://example.com/',
+        device: 'desktop',
+        isHomepage: true,
+        scanModeUsed: 'full',
+        status: 'completed',
+        score: 82,
+      },
+      {
+        url: 'https://example.com/faq',
+        device: 'tablet',
+        isHomepage: false,
+        scanModeUsed: 'lite',
+        status: 'failed',
+        failureReason: 'Lite fallback also failed.',
+        errorCode: 'SERVER_ERROR',
+        statusCode: 500,
+      },
+    ],
+  });
+
+  assert.equal(detail.status, 'completed_with_warnings');
+  assert.equal(detail.emailStatus, 'failed');
+  assert.equal(detail.successfulTargetCount, 4);
+  assert.equal(detail.plannedTargetCount, 6);
+  assert.equal(detail.degradedTargetCount, 2);
+  assert.equal(detail.failedTargetCount, 1);
+  assert.equal(detail.warnings.length, 2);
+  assert.equal(detail.scanTargets.length, 2);
+  assert.equal(detail.scanTargets[1]?.scanModeUsed, 'lite');
+  assert.equal(detail.scanTargets[1]?.status, 'failed');
+  assert.equal(detail.scanTargets[1]?.statusCode, 500);
+});

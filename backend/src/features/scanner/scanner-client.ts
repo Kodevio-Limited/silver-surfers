@@ -58,6 +58,16 @@ export interface ScannerServiceAuditFailure {
 
 export type ScannerServiceAuditResult = ScannerServiceAuditSuccess | ScannerServiceAuditFailure;
 
+export interface ScannerServiceLoadSnapshot {
+  activeAudits: number;
+  queuedAudits: number;
+  maxConcurrentAudits: number;
+  maxQueuedAudits: number;
+  browserPoolSize?: number;
+  browsersInUse?: number;
+  browserWaiters?: number;
+}
+
 function buildTimeoutMs(isLiteVersion: boolean): number {
   return isLiteVersion ? 240_000 : 300_000;
 }
@@ -265,5 +275,25 @@ export async function requestScannerAudit(
       errorCode: 'SCANNER_SERVICE_ERROR',
       originalError: message,
     };
+  }
+}
+
+export async function requestScannerLoadSnapshot(
+  fetchImpl: typeof fetch = fetch,
+): Promise<ScannerServiceLoadSnapshot | null> {
+  try {
+    const response = await fetchImpl(`${env.scannerServiceUrl}/load`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5_000),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = await response.json().catch(() => undefined) as ScannerServiceLoadSnapshot | undefined;
+    return payload || null;
+  } catch {
+    return null;
   }
 }

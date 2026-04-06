@@ -473,11 +473,12 @@ const AdminSubscriptionScans = ({ planType = 'all' }) => {
                     <td className="px-4 py-4 whitespace-nowrap">
                       <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
                         scan.status === 'completed' ? 'bg-green-100 text-green-800' :
+                        scan.status === 'completed_with_warnings' ? 'bg-amber-100 text-amber-800' :
                         scan.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
                         scan.status === 'queued' ? 'bg-blue-100 text-blue-800' :
                         'bg-red-100 text-red-800'
                       }`}>
-                        {scan.status}
+                        {String(scan.status || 'unknown').replace(/_/g, ' ')}
                       </span>
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap">

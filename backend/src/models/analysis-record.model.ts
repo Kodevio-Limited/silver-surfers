@@ -2,6 +2,18 @@ import mongoose from 'mongoose';
 
 import { aiReportSchema, reportFileSchema, reportStorageSchema, scoreCardSchema } from './shared-schemas.ts';
 
+const fullAuditTargetSchema = new mongoose.Schema({
+  url: { type: String, required: true },
+  device: { type: String, enum: ['desktop', 'mobile', 'tablet'], required: true },
+  isHomepage: { type: Boolean, default: false },
+  scanModeUsed: { type: String, enum: ['full', 'lite'], default: 'full' },
+  status: { type: String, enum: ['completed', 'failed'], default: 'completed' },
+  score: { type: Number, default: null },
+  failureReason: { type: String, default: undefined },
+  errorCode: { type: String, default: undefined },
+  statusCode: { type: Number, default: undefined },
+}, { _id: false });
+
 const analysisRecordSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true, required: false },
   email: { type: String, index: true },
@@ -15,11 +27,17 @@ const analysisRecordSchema = new mongoose.Schema({
   score: { type: Number, default: null },
   scoreCard: { type: scoreCardSchema, default: undefined },
   aiReport: { type: aiReportSchema, default: undefined },
-  status: { type: String, enum: ['queued', 'processing', 'completed', 'failed'], default: 'queued' },
+  status: { type: String, enum: ['queued', 'processing', 'completed', 'completed_with_warnings', 'failed'], default: 'queued' },
   emailStatus: { type: String, enum: ['pending', 'sending', 'sent', 'failed'], default: 'pending' },
   reportDirectory: { type: String },
   reportStorage: { type: reportStorageSchema, default: undefined },
   reportFiles: { type: [reportFileSchema], default: [] },
+  warnings: { type: [String], default: [] },
+  plannedTargetCount: { type: Number, default: 0 },
+  successfulTargetCount: { type: Number, default: 0 },
+  degradedTargetCount: { type: Number, default: 0 },
+  failedTargetCount: { type: Number, default: 0 },
+  scanTargets: { type: [fullAuditTargetSchema], default: [] },
   emailError: { type: String },
   emailAccepted: { type: [String], default: [] },
   emailRejected: { type: [String], default: [] },

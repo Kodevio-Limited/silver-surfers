@@ -46,6 +46,10 @@ function getStatusTone(value) {
     return 'green';
   }
 
+  if (value === 'completed_with_warnings') {
+    return 'yellow';
+  }
+
   if (value === 'processing' || value === 'sending' || value === 'needs-improvement') {
     return 'blue';
   }
@@ -71,6 +75,12 @@ function getPriorityTone(value) {
   }
 
   return 'gray';
+}
+
+function formatStatusLabel(value) {
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function getBucketTone(value) {
@@ -335,7 +345,7 @@ export default function AnalysisDetail() {
               >
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
-              <ScoreBadge value={item.status} tone={getStatusTone(item.status)} />
+              <ScoreBadge value={formatStatusLabel(item.status)} tone={getStatusTone(item.status)} />
               <ScoreBadge value={`Email ${item.emailStatus}`} tone={getStatusTone(item.emailStatus)} />
               {item.riskTier ? <ScoreBadge value={`${item.riskTier} risk`} tone={getRiskTone(item.riskTier)} /> : null}
               {item.scoreStatus ? <ScoreBadge value={item.scoreStatus} tone={getStatusTone(item.scoreStatus)} /> : null}
@@ -365,9 +375,9 @@ export default function AnalysisDetail() {
                 help="Current litigation-oriented risk classification"
               />
               <StatCard
-                label="Pages Audited"
-                value={String(item.pageCount || 0)}
-                help="Pages included in the current scorecard"
+                label="Successful Targets"
+                value={`${item.successfulTargetCount || 0}/${item.plannedTargetCount || item.pageCount || 0}`}
+                help="Page and device combinations that produced usable results"
               />
               <StatCard
                 label="Reports"
@@ -375,6 +385,55 @@ export default function AnalysisDetail() {
                 help={item.reportDirectory ? 'Report package generated' : 'No report package yet'}
               />
             </section>
+
+            {(item.warnings?.length > 0 || item.degradedTargetCount > 0 || item.failedTargetCount > 0) ? (
+              <section className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-6">
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <ScoreBadge value={`Degraded ${item.degradedTargetCount || 0}`} tone="yellow" />
+                  <ScoreBadge value={`Failed ${item.failedTargetCount || 0}`} tone={item.failedTargetCount ? 'red' : 'gray'} />
+                  <ScoreBadge value={`Planned ${item.plannedTargetCount || 0}`} tone="gray" />
+                </div>
+                {item.warnings?.length > 0 ? (
+                  <div className="space-y-2">
+                    <h2 className="text-xl font-bold text-white">Warnings</h2>
+                    {item.warnings.map((warning) => (
+                      <p key={warning} className="text-sm text-amber-100">{warning}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            {item.scanTargets?.length > 0 ? (
+              <section className="rounded-2xl border border-white/10 bg-black/20 p-6">
+                <div className="mb-5">
+                  <h2 className="text-2xl font-bold">Scan Targets</h2>
+                  <p className="mt-1 text-sm text-gray-300">Each page and device combination scanned during this audit, including lite fallbacks and any failed targets.</p>
+                </div>
+                <div className="space-y-3">
+                  {item.scanTargets.map((target, index) => (
+                    <div key={`${target.url}-${target.device}-${index}`} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="break-all font-semibold text-white">{target.url}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-gray-400">
+                            {target.device} {target.isHomepage ? '• homepage' : ''}
+                          </p>
+                          {target.failureReason ? (
+                            <p className="mt-2 text-sm text-rose-200">{target.failureReason}</p>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <ScoreBadge value={formatStatusLabel(target.status)} tone={getStatusTone(target.status)} />
+                          <ScoreBadge value={`${target.scanModeUsed} mode`} tone={target.scanModeUsed === 'lite' ? 'yellow' : 'gray'} />
+                          {typeof target.score === 'number' ? <ScoreBadge value={`Score ${Math.round(target.score)}`} tone={getStatusTone(target.score >= 80 ? 'completed' : target.score >= 70 ? 'needs-improvement' : 'failed')} /> : null}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             <section className="rounded-2xl border border-white/10 bg-black/20 p-6">
               <div className="mb-5">

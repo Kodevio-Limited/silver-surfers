@@ -15,8 +15,17 @@ import { useNavigate } from 'react-router-dom';
 import './About.css';
 
 const StatusPill = ({ value }) => {
-  const cls = value==='completed' ? 'bg-emerald-600/70' : value==='failed' ? 'bg-red-600/70' : value==='processing' ? 'bg-blue-600/70' : 'bg-gray-600/60';
-  return <span className={`text-[10px] px-2 py-0.5 rounded-full ${cls}`}>{String(value||'queued').toUpperCase()}</span>;
+  const cls = value==='completed'
+    ? 'bg-emerald-600/70'
+    : value==='completed_with_warnings'
+      ? 'bg-amber-600/70'
+      : value==='failed'
+        ? 'bg-red-600/70'
+        : value==='processing'
+          ? 'bg-blue-600/70'
+          : 'bg-gray-600/60';
+  const label = value === 'completed_with_warnings' ? 'COMPLETED WITH WARNINGS' : String(value || 'queued').replace(/_/g, ' ').toUpperCase();
+  return <span className={`text-[10px] px-2 py-0.5 rounded-full ${cls}`}>{label}</span>;
 };
 
 const EmailPill = ({ value }) => {
@@ -336,6 +345,7 @@ export default function Account() {
                 <option value='queued' className='text-black'>Queued</option>
                 <option value='processing' className='text-black'>Processing</option>
                 <option value='completed' className='text-black'>Completed</option>
+                <option value='completed_with_warnings' className='text-black'>Completed with warnings</option>
                 <option value='failed' className='text-black'>Failed</option>
               </select>
               <button onClick={load} className='px-4 py-2 rounded-lg bg-green-600/80 hover:bg-green-500 text-xs font-semibold shadow'>Refresh</button>
@@ -375,9 +385,14 @@ export default function Account() {
                               <span>Task: {rec.taskId}</span>
                               {rec.createdAt && <span>Created {new Date(rec.createdAt).toLocaleString()}</span>}
                               {typeof rec.attachmentCount==='number' && <span>PDFs: {rec.attachmentCount}</span>}
+                              {typeof rec.successfulTargetCount==='number' && typeof rec.plannedTargetCount==='number' && <span>Targets: {rec.successfulTargetCount}/{rec.plannedTargetCount}</span>}
+                              {typeof rec.degradedTargetCount==='number' && rec.degradedTargetCount > 0 && <span>Lite fallback: {rec.degradedTargetCount}</span>}
                               {Array.isArray(rec.reportFiles) && rec.reportFiles.length > 0 && <span>Stored reports ready</span>}
                             </div>
                             {rec.failureReason && <div className='mt-1 text-[11px] text-red-300'>Reason: {rec.failureReason}</div>}
+                            {!rec.failureReason && Array.isArray(rec.warnings) && rec.warnings.length > 0 && (
+                              <div className='mt-1 text-[11px] text-amber-300'>Warning: {rec.warnings[0]}</div>
+                            )}
                           </div>
                           <div className='flex flex-wrap gap-2'>
                             {rec.taskId && (

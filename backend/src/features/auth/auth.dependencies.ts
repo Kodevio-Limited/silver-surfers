@@ -38,6 +38,11 @@ interface AnalysisRecordDocument {
   emailError?: string;
   reportDirectory?: string;
   reportStorage?: QueueReportStorage;
+  warnings?: string[];
+  plannedTargetCount?: number;
+  successfulTargetCount?: number;
+  degradedTargetCount?: number;
+  failedTargetCount?: number;
   createdAt?: Date;
   updatedAt?: Date;
 }

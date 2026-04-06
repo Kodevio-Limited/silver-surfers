@@ -105,6 +105,7 @@ export interface AppEnv {
   processingTimeoutMs: number;
   queuedTimeoutMs: number;
   watchdogIntervalMs: number;
+  auditRecoveryEnabled: boolean;
   auditRecoveryCheckIntervalMs: number;
   auditRecoveryRetryDelayMs: number;
   auditRecoveryBatchSize: number;
@@ -113,6 +114,7 @@ export interface AppEnv {
   chromePath?: string;
   requestLogEnabled: boolean;
   queueBackend: QueueBackend;
+  queueMaxRetries: number;
   redisUrl?: string;
   bullMqPrefix: string;
   openAiApiKey?: string;
@@ -126,6 +128,13 @@ export interface AppEnv {
   fullAuditCrawlDelayMs: number;
   fullAuditCrawlTimeoutMs: number;
   fullAuditCrawlMaxRetries: number;
+  fullAuditTotalPageLimit: number;
+  fullAuditPriorityPageLimit: number;
+  fullAuditFullModePageLimit: number;
+  fullAuditMaxFullFailuresPerDevice: number;
+  fullAuditMaxFullFailuresPerAudit: number;
+  fullAuditScannerCooldownMs: number;
+  fullAuditCacheTtlMs: number;
   queueCleanupIntervalMs: number;
   queueMaintenanceIntervalMs: number;
   queueLeaseDurationMs: number;
@@ -157,6 +166,7 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     processingTimeoutMs: parseNumber(source.PROCESSING_TIMEOUT_MS, 4 * 60 * 60 * 1000),
     queuedTimeoutMs: parseNumber(source.QUEUED_TIMEOUT_MS, 60 * 60 * 1000),
     watchdogIntervalMs: parseNumber(source.WATCHDOG_INTERVAL_MS, 5 * 60 * 1000),
+    auditRecoveryEnabled: parseBoolean(source.AUDIT_RECOVERY_ENABLED, false),
     auditRecoveryCheckIntervalMs: parseBoundedNumber(source.AUDIT_RECOVERY_CHECK_INTERVAL_MS, 60_000, 5_000, 60 * 60 * 1000),
     auditRecoveryRetryDelayMs: parseBoundedNumber(source.AUDIT_RECOVERY_RETRY_DELAY_MS, 5 * 60 * 1000, 5_000, 24 * 60 * 60 * 1000),
     auditRecoveryBatchSize: parseBoundedNumber(source.AUDIT_RECOVERY_BATCH_SIZE, 10, 1, 100),
@@ -168,6 +178,7 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     chromePath: resolveChromePath(source),
     requestLogEnabled: parseBoolean(source.REQUEST_LOG_ENABLED, true),
     queueBackend: resolveQueueBackend(source.QUEUE_BACKEND?.trim().toLowerCase(), redisUrl),
+    queueMaxRetries: parseBoundedNumber(source.QUEUE_MAX_RETRIES, 1, 1, 20),
     redisUrl,
     bullMqPrefix: source.BULLMQ_PREFIX?.trim() || 'silver-surfers',
     openAiApiKey: source.OPENAI_API_KEY?.trim() || undefined,
@@ -181,6 +192,13 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     fullAuditCrawlDelayMs: parseBoundedNumber(source.FULL_AUDIT_CRAWL_DELAY_MS, 2000, 0, 10000),
     fullAuditCrawlTimeoutMs: parseBoundedNumber(source.FULL_AUDIT_CRAWL_TIMEOUT_MS, 15000, 1000, 120000),
     fullAuditCrawlMaxRetries: parseBoundedNumber(source.FULL_AUDIT_CRAWL_MAX_RETRIES, 3, 1, 5),
+    fullAuditTotalPageLimit: parseBoundedNumber(source.FULL_AUDIT_TOTAL_PAGE_LIMIT, 25, 1, 100),
+    fullAuditPriorityPageLimit: parseBoundedNumber(source.FULL_AUDIT_PRIORITY_PAGE_LIMIT, 3, 0, 20),
+    fullAuditFullModePageLimit: parseBoundedNumber(source.FULL_AUDIT_FULL_MODE_PAGE_LIMIT, 2, 0, 20),
+    fullAuditMaxFullFailuresPerDevice: parseBoundedNumber(source.FULL_AUDIT_MAX_FULL_FAILURES_PER_DEVICE, 2, 1, 20),
+    fullAuditMaxFullFailuresPerAudit: parseBoundedNumber(source.FULL_AUDIT_MAX_FULL_FAILURES_PER_AUDIT, 3, 1, 50),
+    fullAuditScannerCooldownMs: parseBoundedNumber(source.FULL_AUDIT_SCANNER_COOLDOWN_MS, 1500, 0, 60000),
+    fullAuditCacheTtlMs: parseBoundedNumber(source.FULL_AUDIT_CACHE_TTL_MS, 24 * 60 * 60 * 1000, 60_000, 7 * 24 * 60 * 60 * 1000),
     queueCleanupIntervalMs: parseNumber(source.QUEUE_CLEANUP_INTERVAL_MS, 5 * 60 * 1000),
     queueMaintenanceIntervalMs: parseNumber(source.QUEUE_MAINTENANCE_INTERVAL_MS, 30 * 1000),
     queueLeaseDurationMs: parseNumber(source.QUEUE_LEASE_DURATION_MS, 60 * 1000),

@@ -4,6 +4,7 @@ import { connectDatabase, disconnectDatabase } from '../config/database.ts';
 import { env } from '../config/env.ts';
 import { logger } from '../config/logger.ts';
 import { recoverAuditRecords } from '../features/audits/audit-recovery.ts';
+import { closeAuditCache } from '../features/audits/audit-cache.ts';
 import { runFullAuditProcess, runQuickScanProcess } from '../features/audits/audit-processors.ts';
 import { setAuditQueues } from '../features/audits/audits.runtime.ts';
 import { CacheManager } from '../infrastructure/cache/cache-manager.ts';
@@ -34,7 +35,7 @@ function createAuditQueues(): { fullAuditQueue: JobQueue; quickScanQueue: JobQue
 
   const fullAuditQueue = createJobQueue('FullAudit', runFullAuditProcess, {
     concurrency: 5,
-    maxRetries: 3,
+    maxRetries: env.queueMaxRetries,
     retryDelay: 10000,
     cleanupInterval: env.queueCleanupIntervalMs,
     maintenanceIntervalMs: env.queueMaintenanceIntervalMs,
@@ -44,7 +45,7 @@ function createAuditQueues(): { fullAuditQueue: JobQueue; quickScanQueue: JobQue
 
   const quickScanQueue = createJobQueue('QuickScan', runQuickScanProcess, {
     concurrency: 5,
-    maxRetries: 3,
+    maxRetries: env.queueMaxRetries,
     retryDelay: 5000,
     cleanupInterval: env.queueCleanupIntervalMs,
     maintenanceIntervalMs: env.queueMaintenanceIntervalMs,
@@ -96,7 +97,13 @@ export async function initializeWorkerRuntime(): Promise<RuntimeDependencies> {
   const cacheManager = createCacheManager();
   cacheManager.start();
   startWatchdog();
-  startAuditRecoveryChecker(fullAuditQueue, quickScanQueue);
+  if (env.auditRecoveryEnabled) {
+    startAuditRecoveryChecker(fullAuditQueue, quickScanQueue);
+  } else {
+    runtimeLogger.info('Audit recovery checker is disabled.', {
+      auditRecoveryEnabled: env.auditRecoveryEnabled,
+    });
+  }
 
   runtimeLogger.info('Initialized worker runtime.', {
     backendRoot: env.backendRoot,
@@ -203,6 +210,7 @@ export async function shutdownRuntime(dependencies: RuntimeDependencies): Promis
   }
 
   dependencies.cacheManager?.stop();
+  await closeAuditCache().catch(() => undefined);
 
   await Promise.all([
     dependencies.fullAuditQueue.stop(),
