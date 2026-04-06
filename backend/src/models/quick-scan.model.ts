@@ -22,6 +22,11 @@ const quickScanSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  device: {
+    type: String,
+    enum: ['desktop', 'mobile', 'tablet'],
+    default: 'desktop',
+  },
   scanScore: {
     type: Number,
     min: 0,
@@ -77,6 +82,14 @@ const quickScanSchema = new mongoose.Schema({
   errorMessage: {
     type: String,
     default: null,
+  },
+  autoRecoveryAttempts: {
+    type: Number,
+    default: 0,
+  },
+  lastAutoRecoveryAt: {
+    type: Date,
+    default: undefined,
   },
 }, {
   timestamps: true,

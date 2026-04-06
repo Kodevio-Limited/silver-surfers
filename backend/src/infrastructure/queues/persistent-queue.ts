@@ -120,13 +120,28 @@ export class PersistentQueue implements JobQueue {
 
   async addJob(jobData: QueueJobInput): Promise<QueueJobDocument> {
     const AuditJob = await getQueueModel();
-    const job = new AuditJob({
-      ...jobData,
-      status: 'queued',
-      queuedAt: new Date(),
-      maxAttempts: Number(jobData.maxAttempts) > 0 ? Number(jobData.maxAttempts) : this.#options.maxRetries,
-      queueBackend: 'persistent',
-    });
+    const taskId = String(jobData.taskId ?? '');
+    let job = taskId ? await AuditJob.findOne({ taskId }) : null;
+
+    if (!job) {
+      job = new AuditJob({
+        ...jobData,
+        status: 'queued',
+        queuedAt: new Date(),
+        maxAttempts: Number(jobData.maxAttempts) > 0 ? Number(jobData.maxAttempts) : this.#options.maxRetries,
+        queueBackend: 'persistent',
+      });
+    } else {
+      job.status = 'queued';
+      job.completedAt = undefined;
+      job.startedAt = undefined;
+      job.lastError = undefined;
+      job.failureReason = undefined;
+      job.retryAfter = undefined;
+      job.processingNode = undefined;
+      job.workerId = undefined;
+      job.queueBackend = 'persistent';
+    }
 
     await job.save();
     this.#logger.info('Job queued.', { taskId: job.taskId, jobType: this.#jobType });

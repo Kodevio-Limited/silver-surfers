@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { fetchMyQuickScanReportFile, getMyQuickScanDetail, rerunMyQuickScan } from '../api';
+import {
+  deleteMyQuickScan,
+  fetchMyQuickScanReportFile,
+  getMyQuickScanDetail,
+  rescanMyQuickScan,
+  rerunMyQuickScan,
+} from '../api';
 
 function ScoreBadge({ value, tone }) {
   const tones = {
@@ -124,6 +130,8 @@ export default function QuickScanDetail() {
   const [reportAction, setReportAction] = useState('');
   const [reportError, setReportError] = useState('');
   const [rerunning, setRerunning] = useState(false);
+  const [rescanning, setRescanning] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadDetail = async (cancelled = false) => {
     setLoading(true);
@@ -171,6 +179,38 @@ export default function QuickScanDetail() {
     }
 
     await loadDetail();
+  };
+
+  const handleRescan = async () => {
+    if (!quickScanId) return;
+    setRescanning(true);
+    setError('');
+    const result = await rescanMyQuickScan(quickScanId);
+    setRescanning(false);
+
+    if (result?.error) {
+      setError(result.error);
+      return;
+    }
+
+    navigate('/account');
+  };
+
+  const handleDelete = async () => {
+    if (!quickScanId) return;
+    if (!window.confirm('Delete this quick scan from your account?')) return;
+
+    setDeleting(true);
+    setError('');
+    const result = await deleteMyQuickScan(quickScanId);
+    setDeleting(false);
+
+    if (result?.error) {
+      setError(result.error);
+      return;
+    }
+
+    navigate('/account');
   };
 
   const handleReportAction = async (reportFile, disposition) => {
@@ -226,6 +266,13 @@ export default function QuickScanDetail() {
 
           {item ? (
             <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleRescan}
+                disabled={rescanning}
+                className="rounded-lg bg-sky-600/80 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {rescanning ? 'Queueing...' : 'Re-scan'}
+              </button>
               {item.status === 'failed' ? (
                 <button
                   onClick={handleRerun}
@@ -235,6 +282,13 @@ export default function QuickScanDetail() {
                   {rerunning ? 'Re-running...' : 'Re-run scan'}
                 </button>
               ) : null}
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
               <ScoreBadge value={item.status} tone={getStatusTone(item.status)} />
               <ScoreBadge value={`Email ${item.emailStatus || 'pending'}`} tone={getStatusTone(item.emailStatus)} />
               {item.riskTier ? <ScoreBadge value={`${item.riskTier} risk`} tone={getRiskTone(item.riskTier)} /> : null}

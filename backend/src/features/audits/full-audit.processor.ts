@@ -73,6 +73,17 @@ interface ThresholdCheckResult {
 
 interface FullAuditReportEntry extends FullAuditPlatformReport {
   scoreCard: AuditScorecard | null;
+  isLiteVersion?: boolean;
+}
+
+interface FullAuditPageScanResult {
+  success: boolean;
+  reportPath?: string;
+  isLiteVersion: boolean;
+  error?: string;
+  errorCode?: string;
+  statusCode?: number;
+  originalError?: string;
 }
 
 function requireString(value: unknown, field: string): string {
@@ -231,7 +242,7 @@ async function auditLinkForDevice(
   device: FullAuditDevice,
   finalReportFolder: string,
 ): Promise<FullAuditReportEntry | null> {
-  const auditResult = await requestScannerAudit({ url: link, device, format: 'json', includeReport: true });
+  const auditResult = await requestPageAuditWithFallback(link, device);
   
   if (!auditResult.success || !auditResult.reportPath) {
     fullAuditLogger.error('Skipping failed full-audit page scan.', {
@@ -239,6 +250,8 @@ async function auditLinkForDevice(
       device,
       error: (auditResult as any).error || 'Unknown audit error',
       errorCode: (auditResult as any).errorCode,
+      statusCode: (auditResult as any).statusCode,
+      originalError: (auditResult as any).originalError,
     });
     return null;
   }
@@ -249,13 +262,19 @@ async function auditLinkForDevice(
   let auditScoreCard: AuditScorecard | null = null;
 
   try {
-    const scoreData = await calculateSeniorFriendlinessScore(reportData);
+    const scoreData = await calculateSeniorFriendlinessScore(reportData, {
+      isLiteVersion: auditResult.isLiteVersion,
+    });
     auditScore = Number.isFinite(scoreData.finalScore) ? scoreData.finalScore : null;
-    auditScoreCard = buildAuditScorecard(reportData, { pageUrl: link });
+    auditScoreCard = buildAuditScorecard(reportData, {
+      pageUrl: link,
+      isLiteVersion: auditResult.isLiteVersion,
+    });
   } catch (error) {
     fullAuditLogger.warn('Failed to build scorecard for page audit.', {
       url: link,
       device,
+      isLiteVersion: auditResult.isLiteVersion,
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -273,6 +292,99 @@ async function auditLinkForDevice(
     imagePaths: {},
     score: auditScore,
     scoreCard: auditScoreCard,
+    isLiteVersion: auditResult.isLiteVersion,
+  };
+}
+
+function shouldFallbackToLiteScanner(errorCode: string | undefined): boolean {
+  return errorCode === 'SERVER_ERROR'
+    || errorCode === 'REQUEST_TIMEOUT'
+    || errorCode === 'SCAN_TIMEOUT';
+}
+
+async function requestPageAuditWithFallback(
+  link: string,
+  device: FullAuditDevice,
+): Promise<FullAuditPageScanResult> {
+  const firstAttempt = await requestScannerAudit({
+    url: link,
+    device,
+    format: 'json',
+    includeReport: true,
+  });
+
+  if (firstAttempt.success) {
+    return {
+      ...firstAttempt,
+      isLiteVersion: false,
+    };
+  }
+
+  fullAuditLogger.warn('Full-audit page scan failed on first attempt; retrying full scanner.', {
+    url: link,
+    device,
+    errorCode: firstAttempt.errorCode,
+    statusCode: firstAttempt.statusCode,
+    error: firstAttempt.error,
+  });
+
+  await sleep(1_500);
+
+  const secondAttempt = await requestScannerAudit({
+    url: link,
+    device,
+    format: 'json',
+    includeReport: true,
+  });
+
+  if (secondAttempt.success) {
+    fullAuditLogger.info('Full-audit page scan recovered on retry.', {
+      url: link,
+      device,
+    });
+    return {
+      ...secondAttempt,
+      isLiteVersion: false,
+    };
+  }
+
+  if (!shouldFallbackToLiteScanner(secondAttempt.errorCode)) {
+    return {
+      ...secondAttempt,
+      isLiteVersion: false,
+    };
+  }
+
+  fullAuditLogger.warn('Falling back to lite scanner for full-audit page.', {
+    url: link,
+    device,
+    errorCode: secondAttempt.errorCode,
+    statusCode: secondAttempt.statusCode,
+    error: secondAttempt.error,
+  });
+
+  const liteAttempt = await requestScannerAudit({
+    url: link,
+    device,
+    format: 'json',
+    includeReport: true,
+    isLiteVersion: true,
+  });
+
+  if (liteAttempt.success) {
+    fullAuditLogger.warn('Lite scanner fallback succeeded for full-audit page.', {
+      url: link,
+      device,
+    });
+    return {
+      ...liteAttempt,
+      isLiteVersion: true,
+    };
+  }
+
+  return {
+    ...liteAttempt,
+    isLiteVersion: true,
   };
 }
 
@@ -562,6 +674,7 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
     fullName,
   });
 
+  await fs.rm(finalReportFolder, { recursive: true, force: true }).catch(() => undefined);
   await fs.mkdir(finalReportFolder, { recursive: true });
   await fs.mkdir(jobFolder, { recursive: true });
 
@@ -696,8 +809,11 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
       );
       finalizeFullAuditRecord(record, sendResult as FullAuditEmailResult);
     } else {
+      const emailFailureMessage = (sendResult as { error?: string }).error || 'Email delivery failed';
+      record.emailStatus = 'failed';
+      record.emailError = emailFailureMessage;
       record.status = 'failed';
-      record.failureReason = (sendResult as { error: string }).error || 'Email delivery failed';
+      record.failureReason = emailFailureMessage;
     }
     await updateUsageCounters(record);
     await record.save().catch((error) => {

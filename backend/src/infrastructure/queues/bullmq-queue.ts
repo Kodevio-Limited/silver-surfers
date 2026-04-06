@@ -39,6 +39,8 @@ interface BullJobInstance {
   id?: string;
   data: QueueJobInput;
   attemptsMade: number;
+  getState?(): Promise<string>;
+  remove?(): Promise<void>;
   opts: {
     attempts?: number;
   };
@@ -86,6 +88,10 @@ function buildReportDirectory(reportStorage: QueueResult['reportStorage'], fallb
 function clearProcessingState(job: QueueJobDocument): void {
   job.processingNode = undefined;
   job.workerId = undefined;
+}
+
+function isTerminalBullJobState(state: string): boolean {
+  return state === 'completed' || state === 'failed';
 }
 
 async function loadBullRuntime(): Promise<BullRuntime> {
@@ -259,19 +265,37 @@ export class BullMqQueue implements JobQueue {
     });
 
     const existingJob = await this.#queue!.getJob(job.taskId);
-    if (!existingJob) {
-      await this.#queue!.add(this.#jobType, serializedPayload, {
-        jobId: job.taskId,
-        attempts: job.maxAttempts ?? this.#options.maxRetries,
-        backoff: {
-          type: 'exponential',
-          delay: this.#options.retryDelay,
-        },
-        removeOnComplete: false,
-        removeOnFail: false,
-        priority: typeof jobData.priority === 'number' ? Number(jobData.priority) : 0,
-      });
+    if (existingJob) {
+      const state = await existingJob.getState?.().catch(() => 'unknown') || 'unknown';
+
+      if (isTerminalBullJobState(state) && existingJob.remove) {
+        await existingJob.remove();
+        this.#logger.warn('Removed terminal BullMQ job before requeueing task.', {
+          taskId: job.taskId,
+          jobType: this.#jobType,
+          previousState: state,
+        });
+      } else {
+        this.#logger.info('BullMQ job already exists; skipping duplicate enqueue.', {
+          taskId: job.taskId,
+          jobType: this.#jobType,
+          existingState: state,
+        });
+        return job;
+      }
     }
+
+    await this.#queue!.add(this.#jobType, serializedPayload, {
+      jobId: job.taskId,
+      attempts: job.maxAttempts ?? this.#options.maxRetries,
+      backoff: {
+        type: 'exponential',
+        delay: this.#options.retryDelay,
+      },
+      removeOnComplete: false,
+      removeOnFail: false,
+      priority: typeof jobData.priority === 'number' ? Number(jobData.priority) : 0,
+    });
 
     this.#logger.info('BullMQ job queued.', {
       taskId: job.taskId,
@@ -295,7 +319,20 @@ export class BullMqQueue implements JobQueue {
     for (const job of recoverableJobs) {
       const existingJob = await this.#queue!.getJob(job.taskId);
       if (existingJob) {
-        continue;
+        const state = await existingJob.getState?.().catch(() => 'unknown') || 'unknown';
+        const isRecoverableStatus = job.status === 'queued' || job.status === 'processing' || job.status === 'failed';
+
+        if (isRecoverableStatus && isTerminalBullJobState(state) && existingJob.remove) {
+          await existingJob.remove();
+          this.#logger.warn('Removed terminal BullMQ job during recovery so task can be rehydrated.', {
+            taskId: job.taskId,
+            jobType: this.#jobType,
+            mongoStatus: job.status,
+            previousBullState: state,
+          });
+        } else {
+          continue;
+        }
       }
 
       const hasRetriesRemaining = (job.retryCount ?? 0) < (job.maxAttempts ?? this.#options.maxRetries);

@@ -22,6 +22,7 @@ interface QuickScanJobPayload {
   firstName?: string;
   lastName?: string;
   quickScanId?: string;
+  selectedDevice?: string;
 }
 
 function requireString(value: unknown, field: string): string {
@@ -36,6 +37,15 @@ function requireString(value: unknown, field: string): string {
 function optionalString(value: unknown): string | undefined {
   const normalized = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
   return normalized || undefined;
+}
+
+function normalizeQuickScanDevice(value: unknown): 'desktop' | 'mobile' | 'tablet' {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'mobile' || normalized === 'tablet') {
+    return normalized;
+  }
+
+  return 'desktop';
 }
 
 function sanitizePathSegment(value: string, maxLength?: number): string {
@@ -83,6 +93,7 @@ function toQuickScanJobPayload(payload: QueueJobInput): QuickScanJobPayload {
     firstName: optionalString(payload.firstName),
     lastName: optionalString(payload.lastName),
     quickScanId: payload.quickScanId == null ? undefined : String(payload.quickScanId),
+    selectedDevice: normalizeQuickScanDevice(payload.selectedDevice),
   };
 }
 
@@ -95,6 +106,7 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
     email: job.email,
     url: job.url,
     quickScanId: job.quickScanId,
+    device: job.selectedDevice,
     fullName,
   });
 
@@ -116,7 +128,7 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
   try {
     const auditResult = await requestScannerAudit({
       url: job.url,
-      device: 'desktop',
+      device: normalizeQuickScanDevice(job.selectedDevice),
       format: 'json',
       isLiteVersion: true,
       includeReport: true,
@@ -157,11 +169,17 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
       `${uniqueQuickScanId}-${sanitizePathSegment(job.url, 50)}`,
     );
 
+    await fs.rm(userSpecificOutputDir, { recursive: true, force: true }).catch(() => undefined);
+    await fs.mkdir(userSpecificOutputDir, { recursive: true });
+
     const pdfResult = await generateLiteAccessibilityReport(jsonReportPath, userSpecificOutputDir);
     const score = Number.parseFloat(String(pdfResult.score));
     await generateAuditAiSummaryPdf(aiReport, {
       url: job.url,
-      outputPath: path.join(userSpecificOutputDir, 'ai-executive-summary-desktop.pdf'),
+      outputPath: path.join(
+        userSpecificOutputDir,
+        `ai-executive-summary-${normalizeQuickScanDevice(job.selectedDevice)}.pdf`,
+      ),
       title: 'Quick Scan AI Executive Summary',
       scorecard: liteScorecard,
     }).catch((error) => {
@@ -174,6 +192,7 @@ export async function runQuickScanProcess(payload: QueueJobInput): Promise<Queue
     if (job.quickScanId) {
       const attachmentsPreview = await collectAttachmentsRecursive(userSpecificOutputDir).catch(() => []);
       await QuickScan.findByIdAndUpdate(job.quickScanId, {
+        device: normalizeQuickScanDevice(job.selectedDevice),
         scanScore: Number.isFinite(score) ? score : undefined,
         scoreCard: liteScorecard,
         aiReport,

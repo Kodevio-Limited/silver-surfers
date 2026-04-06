@@ -1,3 +1,6 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
@@ -9,6 +12,7 @@ import { asyncHandler } from '../../shared/http/async-handler.ts';
 import { buildAnalysisDetail } from '../audits/analysis-details.ts';
 import { getQuickScanModel } from '../audits/audits.dependencies.ts';
 import { listAnalysisReportFiles, sendAnalysisReportFile } from '../audits/analysis-reports.ts';
+import { generateAuditAiSummaryPdf } from '../audits/report-generation.ts';
 import { getAuditQueues } from '../audits/audits.runtime.ts';
 import { getAnalysisRecordModel, getEmailModule, getUserModel } from './auth.dependencies.ts';
 import { authRequired, decodeAuthToken, readBearerToken } from './auth.middleware.ts';
@@ -57,6 +61,57 @@ function isValidObjectId(value: string): boolean {
 
 function createTaskId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isActiveScanStatus(status: string | undefined): boolean {
+  const normalized = String(status || '').toLowerCase();
+  return normalized === 'queued' || normalized === 'processing';
+}
+
+const QUICK_SCAN_AI_SUMMARY_REPORT_ID = 'ai-summary-pdf';
+
+function normalizeQuickScanDevice(value: unknown): 'desktop' | 'mobile' | 'tablet' {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'mobile' || normalized === 'tablet') {
+    return normalized;
+  }
+
+  return 'desktop';
+}
+
+function buildQuickScanAiSummaryFileView(device?: string | null) {
+  const normalizedDevice = normalizeQuickScanDevice(device);
+  return {
+    id: QUICK_SCAN_AI_SUMMARY_REPORT_ID,
+    filename: `ai-executive-summary-${normalizedDevice}.pdf`,
+    displayName: `ai-executive-summary-${normalizedDevice}.pdf`,
+    contentType: 'application/pdf',
+    hasPreview: true,
+    hasDownload: true,
+  };
+}
+
+function isQuickScanAiSummaryFilename(filename: string | undefined): boolean {
+  return String(filename || '').toLowerCase().includes('ai-executive-summary');
+}
+
+function filterStoredQuickScanAiSummary<T extends { filename?: string }>(reportFiles: T[] | undefined): T[] {
+  if (!Array.isArray(reportFiles)) {
+    return [];
+  }
+
+  return reportFiles.filter((file) => !isQuickScanAiSummaryFilename(file?.filename));
+}
+
+function findStoredQuickScanAiSummaryById<T extends { id?: string; filename?: string }>(
+  reportFiles: T[] | undefined,
+  reportId: string,
+): T | null {
+  if (!Array.isArray(reportFiles) || !reportId) {
+    return null;
+  }
+
+  return reportFiles.find((file) => file?.id === reportId && isQuickScanAiSummaryFilename(file?.filename)) || null;
 }
 
 router.post('/register', asyncHandler(async (request, response) => {
@@ -380,6 +435,8 @@ router.post('/my-analysis/:taskId/rerun', authRequired, asyncHandler(async (requ
   item.score = undefined;
   item.scoreCard = undefined;
   item.aiReport = undefined;
+  item.autoRecoveryAttempts = 0;
+  item.lastAutoRecoveryAt = undefined;
   await item.save();
 
   const { fullAuditQueue } = getAuditQueues();
@@ -397,6 +454,96 @@ router.post('/my-analysis/:taskId/rerun', authRequired, asyncHandler(async (requ
   response.json({
     message: 'Failed full audit has been queued again.',
     taskId: item.taskId,
+  });
+}));
+
+router.post('/my-analysis/:taskId/rescan', authRequired, asyncHandler(async (request, response) => {
+  const AnalysisRecord = await getAnalysisRecordModel();
+  const user = request.user;
+  const taskId = String(request.params.taskId || '').trim();
+
+  if (!taskId) {
+    response.status(400).json({ error: 'Task ID is required.' });
+    return;
+  }
+
+  const item = await AnalysisRecord.findOne({
+    $and: [
+      { taskId },
+      buildOwnedAnalysisQuery(user),
+    ],
+  });
+
+  if (!item) {
+    response.status(404).json({ error: 'Analysis record not found.' });
+    return;
+  }
+
+  const newTaskId = createTaskId();
+  const clonedRecord = await AnalysisRecord.create({
+    user: item.user || undefined,
+    email: item.email,
+    firstName: item.firstName || '',
+    lastName: item.lastName || '',
+    url: item.url,
+    taskId: newTaskId,
+    planId: item.planId || null,
+    device: item.device || null,
+    status: 'queued',
+    emailStatus: 'pending',
+  });
+
+  const { fullAuditQueue } = getAuditQueues();
+  await fullAuditQueue.addJob({
+    email: item.email,
+    url: item.url,
+    userId: item.user || undefined,
+    taskId: newTaskId,
+    planId: item.planId,
+    selectedDevice: item.device,
+    firstName: item.firstName || '',
+    lastName: item.lastName || '',
+    recordId: clonedRecord._id,
+  });
+
+  response.json({
+    message: 'A new full audit scan has been queued.',
+    taskId: newTaskId,
+  });
+}));
+
+router.delete('/my-analysis/:taskId', authRequired, asyncHandler(async (request, response) => {
+  const AnalysisRecord = await getAnalysisRecordModel();
+  const user = request.user;
+  const taskId = String(request.params.taskId || '').trim();
+
+  if (!taskId) {
+    response.status(400).json({ error: 'Task ID is required.' });
+    return;
+  }
+
+  const item = await AnalysisRecord.findOne({
+    $and: [
+      { taskId },
+      buildOwnedAnalysisQuery(user),
+    ],
+  });
+
+  if (!item) {
+    response.status(404).json({ error: 'Analysis record not found.' });
+    return;
+  }
+
+  if (isActiveScanStatus(item.status)) {
+    response.status(400).json({ error: 'Active full audits cannot be deleted while they are still running.' });
+    return;
+  }
+
+  await AnalysisRecord.deleteOne({ _id: item._id });
+
+  response.json({
+    message: 'Full audit deleted.',
+    taskId,
   });
 }));
 
@@ -440,6 +587,8 @@ router.post('/my-quick-scans/:quickScanId/rerun', authRequired, asyncHandler(asy
   item.reportStorage = undefined;
   item.reportFiles = [];
   item.scanDate = new Date();
+  item.autoRecoveryAttempts = 0;
+  item.lastAutoRecoveryAt = undefined;
   await item.save();
 
   const { quickScanQueue } = getAuditQueues();
@@ -455,11 +604,102 @@ router.post('/my-quick-scans/:quickScanId/rerun', authRequired, asyncHandler(asy
     subscriptionId: null,
     priority: 2,
     quickScanId: item._id,
+    selectedDevice: item.device || 'desktop',
   });
 
   response.json({
     message: 'Failed quick scan has been queued again.',
     quickScanId: String(item._id || quickScanId),
+  });
+}));
+
+router.post('/my-quick-scans/:quickScanId/rescan', authRequired, asyncHandler(async (request, response) => {
+  const QuickScan = await getQuickScanModel();
+  const user = request.user;
+  const quickScanId = String(request.params.quickScanId || '').trim();
+
+  if (!quickScanId || !isValidObjectId(quickScanId)) {
+    response.status(400).json({ error: 'Quick scan ID is required.' });
+    return;
+  }
+
+  const item = await QuickScan.findOne({
+    $and: [
+      { _id: quickScanId },
+      buildOwnedQuickScanQuery(user),
+    ],
+  });
+
+  if (!item) {
+    response.status(404).json({ error: 'Quick scan not found.' });
+    return;
+  }
+
+  const clonedRecord = await QuickScan.create({
+    url: item.url,
+    email: item.email,
+    firstName: item.firstName || '',
+    lastName: item.lastName || '',
+    device: item.device || 'desktop',
+    status: 'queued',
+    emailStatus: 'pending',
+    scanDate: new Date(),
+  });
+
+  const { quickScanQueue } = getAuditQueues();
+  const taskId = createTaskId();
+  await quickScanQueue.addJob({
+    email: item.email,
+    url: item.url,
+    firstName: item.firstName || '',
+    lastName: item.lastName || '',
+    userId: null,
+    taskId,
+    jobType: 'quick-scan',
+    subscriptionId: null,
+    priority: 2,
+    quickScanId: clonedRecord._id,
+    selectedDevice: item.device || 'desktop',
+  });
+
+  response.json({
+    message: 'A new quick scan has been queued.',
+    quickScanId: String(clonedRecord._id || ''),
+  });
+}));
+
+router.delete('/my-quick-scans/:quickScanId', authRequired, asyncHandler(async (request, response) => {
+  const QuickScan = await getQuickScanModel();
+  const user = request.user;
+  const quickScanId = String(request.params.quickScanId || '').trim();
+
+  if (!quickScanId || !isValidObjectId(quickScanId)) {
+    response.status(400).json({ error: 'Quick scan ID is required.' });
+    return;
+  }
+
+  const item = await QuickScan.findOne({
+    $and: [
+      { _id: quickScanId },
+      buildOwnedQuickScanQuery(user),
+    ],
+  });
+
+  if (!item) {
+    response.status(404).json({ error: 'Quick scan not found.' });
+    return;
+  }
+
+  if (isActiveScanStatus(item.status)) {
+    response.status(400).json({ error: 'Active quick scans cannot be deleted while they are still running.' });
+    return;
+  }
+
+  await QuickScan.deleteOne({ _id: item._id });
+
+  response.json({
+    message: 'Quick scan deleted.',
+    quickScanId,
   });
 }));
 
@@ -497,6 +737,7 @@ router.get('/my-quick-scans/:quickScanId', authRequired, asyncHandler(async (req
     email: item.email,
     firstName: item.firstName,
     lastName: item.lastName,
+    device: item.device || 'desktop',
     url: item.url,
     score: item.scanScore ?? item.scoreCard?.overallScore,
     scoreCard: item.scoreCard,
@@ -513,9 +754,16 @@ router.get('/my-quick-scans/:quickScanId', authRequired, asyncHandler(async (req
     updatedAt: item.updatedAt,
   });
 
+  const reportFilesWithoutStoredAiSummary = filterStoredQuickScanAiSummary(detail.reportFiles);
+  const reportFiles = item.aiReport
+    ? [...reportFilesWithoutStoredAiSummary, buildQuickScanAiSummaryFileView(item.device)]
+    : reportFilesWithoutStoredAiSummary;
+
   response.json({
     item: {
       ...detail,
+      reportFiles,
+      attachmentCount: reportFiles.length,
       quickScanId,
       scanDate: item.scanDate instanceof Date ? item.scanDate.toISOString() : item.scanDate,
       reportGenerated: Boolean(item.reportGenerated),
@@ -545,6 +793,36 @@ router.get('/my-quick-scans/:quickScanId/reports/:reportId', authRequired, async
   if (!item) {
     response.status(404).json({ error: 'Quick scan not found.' });
     return;
+  }
+
+  await listAnalysisReportFiles(item);
+
+  const legacyAiSummaryFile = findStoredQuickScanAiSummaryById(item.reportFiles, reportId);
+  if (reportId === QUICK_SCAN_AI_SUMMARY_REPORT_ID || legacyAiSummaryFile) {
+    if (!item.aiReport) {
+      response.status(404).json({ error: 'AI summary report not found.' });
+      return;
+    }
+
+    const tempPath = path.join(os.tmpdir(), `quick-scan-ai-summary-${quickScanId}-${Date.now()}.pdf`);
+
+    try {
+      await generateAuditAiSummaryPdf(item.aiReport, {
+        url: String(item.url || ''),
+        outputPath: tempPath,
+        title: 'Quick Scan AI Executive Summary',
+        scorecard: item.scoreCard,
+      });
+
+      const fileBuffer = await fs.readFile(tempPath);
+      const filename = `ai-executive-summary-${normalizeQuickScanDevice(item.device)}.pdf`;
+      response.setHeader('Content-Type', 'application/pdf');
+      response.setHeader('Content-Disposition', `${disposition}; filename="${filename}"`);
+      response.send(fileBuffer);
+      return;
+    } finally {
+      await fs.unlink(tempPath).catch(() => undefined);
+    }
   }
 
   const sent = await sendAnalysisReportFile(item, reportId, response, disposition).catch((error) => {

@@ -25,6 +25,8 @@ const analysisRecordSchema = new mongoose.Schema({
   emailRejected: { type: [String], default: [] },
   attachmentCount: { type: Number, default: 0 },
   failureReason: { type: String },
+  autoRecoveryAttempts: { type: Number, default: 0 },
+  lastAutoRecoveryAt: { type: Date, default: undefined },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });

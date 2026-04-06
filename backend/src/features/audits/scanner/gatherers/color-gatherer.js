@@ -12,7 +12,7 @@ class ColorGatherer extends Gatherer {
       const results = [];
       const links = document.querySelectorAll('a[href]');
 
-      for (const link of (links as unknown as HTMLAnchorElement[])) {
+      for (const link of links) {
         const rect = link.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0 && link.textContent?.trim()) {
           const style = window.getComputedStyle(link);

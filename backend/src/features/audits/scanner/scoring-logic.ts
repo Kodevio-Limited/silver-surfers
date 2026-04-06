@@ -10,12 +10,18 @@ export interface ScoringResult {
   error?: string;
 }
 
+interface ScoringOptions {
+  isLiteVersion?: boolean;
+}
+
 /**
  * Calculates the weighted "Senior Friendliness" score from a Lighthouse report
  */
-export function calculateSeniorFriendlinessScore(report: any): ScoringResult {
+export function calculateSeniorFriendlinessScore(report: any, options: ScoringOptions = {}): ScoringResult {
   scoringLogger.debug('Starting Silver Surfers score calculation');
-  const scorecard = buildAuditScorecard(report);
+  const scorecard = buildAuditScorecard(report, {
+    isLiteVersion: Boolean(options.isLiteVersion),
+  });
   const finalScore = scorecard.overallScore;
 
   scoringLogger.debug(`Final Silver Surfers Score: ${finalScore.toFixed(2)}`, {

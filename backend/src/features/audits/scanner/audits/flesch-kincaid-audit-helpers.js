@@ -1,6 +1,6 @@
 import nlp from 'compromise';
 
-function countSyllables(word: string) {
+function countSyllables(word) {
   if (word.length <= 3) return 1;
   word = word.toLowerCase().replace(/[^a-z]/g, '');
   if (word.length === 0) return 1;
@@ -9,7 +9,7 @@ function countSyllables(word: string) {
   return vowelMatches ? vowelMatches.length : 1;
 }
 
-function preProcessSentence(sentence: string) {
+function preProcessSentence(sentence) {
     let cleaned = sentence.replace(/\s*\.{1,}\s*.*$/, '.');
     const cruftRegex = /\b(learn more|read more|click here|get started|accept|to know more)\b\.?$/i;
     cleaned = cleaned.replace(cruftRegex, '');
@@ -17,30 +17,30 @@ function preProcessSentence(sentence: string) {
     return cleaned;
 }
 
-function isContentSentence(sentence: string) {
+function isContentSentence(sentence) {
     const doc = nlp(sentence);
-    const words = (doc.terms().json() as any[]).map(t => t.text);
+    const words = doc.terms().json().map((t) => t.text);
     if (words.length < 5) return false;
     const junkRegex = /\b(all rights reserved|privacy policy|cookie policy|log in|sign up|specialty-focused)\b/i;
     if (junkRegex.test(sentence)) return false;
     if (!doc.has('#Noun') || !doc.has('#Verb')) return false;
-    const terms = (doc.json(0) as any).terms;
-    const nonVerbCount = terms.filter((t: any) => t.tags.includes('Noun') || t.tags.includes('Adjective')).length;
+    const terms = doc.json(0).terms;
+    const nonVerbCount = terms.filter((t) => t.tags.includes('Noun') || t.tags.includes('Adjective')).length;
     if (!doc.has('#Verb') && (nonVerbCount / terms.length) > 0.7) return false;
     const firstTerm = doc.terms().first();
     if (firstTerm.has('#Verb') && !doc.match('#Noun').before(firstTerm).found) return false;
     return true;
 }
 
-function isCompleteSentence(sentence: string) {
+function isCompleteSentence(sentence) {
     return /[.!?]$/.test(sentence.trim());
 }
 
-function getBestSampleSentences(sentences: string[], count = 3) {
+function getBestSampleSentences(sentences, count = 3) {
     if (sentences.length === 0) return [];
     const completeSentences = sentences.filter(isCompleteSentence);
     const incompleteSentences = sentences.filter(s => !isCompleteSentence(s));
-    const samples: string[] = [];
+    const samples = [];
     samples.push(...completeSentences.slice(0, count));
     if (samples.length < count) {
         const remaining = count - samples.length;
@@ -49,10 +49,10 @@ function getBestSampleSentences(sentences: string[], count = 3) {
     return samples.slice(0, count);
 }
 
-function extractContentSentences(textFragments: string[]) {
+function extractContentSentences(textFragments) {
     const fullText = textFragments.join('. ').replace(/\s+/g, ' ').trim();
     const doc = nlp(fullText);
-    const allSentences = (doc.sentences().out('array') as string[]);
+    const allSentences = doc.sentences().out('array');
     const processedSentences = allSentences.map(preProcessSentence);
     const uniqueSentences = [...new Set(processedSentences)];
     const contentSentences = uniqueSentences.filter(isContentSentence);
@@ -75,7 +75,7 @@ function extractContentSentences(textFragments: string[]) {
     };
 }
 
-export function calculateFleschKincaid(textFragments: string[]) {
+export function calculateFleschKincaid(textFragments) {
   const { contentSentences, removedCount, totalFragments, contentQuality } = extractContentSentences(textFragments);
   const cleanedText = contentSentences.join(' ');
   const words = cleanedText.match(/\b[a-zA-Z]{2,}\b/g) || [];

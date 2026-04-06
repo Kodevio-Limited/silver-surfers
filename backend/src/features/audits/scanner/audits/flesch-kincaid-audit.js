@@ -14,17 +14,17 @@ class FleschKincaidAudit extends Audit {
   }
   
   static async audit(artifacts) {
-    const collectedTextFragments = (artifacts.PageText as any[]).map(item => item.text);
+    const collectedTextFragments = (artifacts.PageText || []).map((item) => item.text);
     if (!collectedTextFragments || collectedTextFragments.length === 0) {
       return { score: 1, notApplicable: true };
     }
     
-    const result = (calculateFleschKincaid(collectedTextFragments) as any);
+    const result = calculateFleschKincaid(collectedTextFragments);
     const { score: rawScore, words, sentences, syllables, debug } = result;
     
     let categoryData;
     try {
-      categoryData = await (classifyWebsiteCategory(collectedTextFragments) as any);
+      categoryData = await classifyWebsiteCategory(collectedTextFragments);
     } catch (error) {
       categoryData = {
         category: 'General',

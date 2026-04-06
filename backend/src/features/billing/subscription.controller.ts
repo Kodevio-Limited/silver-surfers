@@ -18,6 +18,23 @@ function getStripePeriodDate(value: unknown, fallback: Date | null = null): Date
   return Number.isFinite(timestamp) ? new Date(timestamp * 1000) : fallback;
 }
 
+function normalizeAdminManagedEmbeddedStatus(
+  userRole: string | undefined,
+  planId: string | undefined,
+  status: string | undefined,
+): string | null {
+  const normalizedStatus = String(status || '').toLowerCase();
+  if (!planId || !normalizedStatus || normalizedStatus === 'none') {
+    return null;
+  }
+
+  if (userRole === 'admin' && normalizedStatus === 'incomplete') {
+    return 'active';
+  }
+
+  return normalizedStatus;
+}
+
 export async function getSubscription(request: Request, response: Response): Promise<void> {
   try {
     const userId = request.user?.id;
@@ -62,6 +79,36 @@ export async function getSubscription(request: Request, response: Response): Pro
     }
 
     const plan = subscription?.planId ? getPlanById(subscription.planId) : null;
+    const normalizedEmbeddedStatus = normalizeAdminManagedEmbeddedStatus(
+      request.user?.role,
+      user.subscription?.planId,
+      user.subscription?.status,
+    );
+
+    if (!subscription && normalizedEmbeddedStatus && ['active', 'trialing', 'past_due'].includes(normalizedEmbeddedStatus)) {
+      response.json({
+        user: {
+          id: user._id,
+          email: user.email,
+          stripeCustomerId: user.stripeCustomerId,
+          oneTimeScans: user.oneTimeScans || 0,
+        },
+        subscription: {
+          id: user.subscription?.stripeSubscriptionId || null,
+          status: normalizedEmbeddedStatus,
+          planId: user.subscription?.planId,
+          plan: getPlanById(user.subscription?.planId || ''),
+          currentPeriodStart: user.subscription?.currentPeriodStart,
+          currentPeriodEnd: user.subscription?.currentPeriodEnd,
+          cancelAtPeriodEnd: Boolean(user.subscription?.cancelAtPeriodEnd),
+          usage: user.subscription?.usage,
+          limits: undefined,
+          isTeamMember: Boolean(user.subscription?.isTeamMember),
+        },
+        oneTimeScans: user.oneTimeScans || 0,
+      });
+      return;
+    }
 
     response.json({
       user: {

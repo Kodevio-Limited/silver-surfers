@@ -4,9 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 
-import { buildAuditReportEmailBody, collectAttachmentsRecursive } from '../src/features/audits/report-delivery.ts';
+import {
+  buildAuditReportEmailBody,
+  collectAttachmentsRecursive,
+  sendAuditReportEmail,
+} from '../src/features/audits/report-delivery.ts';
 
-test('collectAttachmentsRecursive returns supported report artifacts and respects device filters', async () => {
+test('collectAttachmentsRecursive returns PDF report artifacts and respects device filters', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'report-delivery-'));
 
   try {
@@ -22,18 +26,45 @@ test('collectAttachmentsRecursive returns supported report artifacts and respect
 
     assert.deepEqual(
       desktopFiles.map((file) => file.filename).sort(),
-      ['ai-executive-summary-desktop.md', 'combined-desktop-report.pdf'].sort(),
+      ['combined-desktop-report.pdf'].sort(),
     );
     assert.deepEqual(
       allFiles.map((file) => file.filename).sort(),
       [
-        'ai-executive-summary-desktop.md',
         'combined-desktop-report.pdf',
         'combined-mobile-report.pdf',
         path.join('nested', 'summary-tablet.pdf'),
       ].sort(),
     );
   } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('sendAuditReportEmail fails fast when no report files were generated', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'report-delivery-empty-'));
+  const previousSmtpHost = process.env.SMTP_HOST;
+
+  process.env.SMTP_HOST = 'smtp.example.com';
+
+  try {
+    const result = await sendAuditReportEmail({
+      to: 'team@example.com',
+      subject: 'Audit Results',
+      text: 'Your audit results are ready.',
+      folderPath: tempDir,
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'No report files were available to send.');
+    assert.equal(result.totalFiles, 0);
+  } finally {
+    if (previousSmtpHost === undefined) {
+      delete process.env.SMTP_HOST;
+    } else {
+      process.env.SMTP_HOST = previousSmtpHost;
+    }
+
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });

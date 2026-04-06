@@ -126,7 +126,7 @@ export const startAudit = async (email, url, selectedDevice = null, firstName = 
   }
 };
 
-export const quickAudit = async (email, url, firstName = '', lastName = '') => {
+export const quickAudit = async (email, url, firstName = '', lastName = '', selectedDevice = 'desktop') => {
   try {
     // Precheck & normalize
     const pre = await precheckUrl(url);
@@ -134,23 +134,18 @@ export const quickAudit = async (email, url, firstName = '', lastName = '') => {
       return { error: pre?.error || 'URL not reachable. Please check the domain and try again.' };
     }
     const normalized = pre?.finalUrl || pre?.normalizedUrl || url;
-    
-    // Quick audit is FREE and doesn't require authentication
-    const response = await fetch(`${API_BASE}/quick-audit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        email, 
-        url: normalized,
-        firstName,
-        lastName
-      })
+
+    const response = await api.post('/quick-audit', {
+      email,
+      url: normalized,
+      firstName,
+      lastName,
+      selectedDevice,
     });
-    
-    const data = await response.json();
-    return data;
+
+    return response.data;
   } catch (error) {
-    return { error: error.message || 'Network error occurred' };
+    return { error: error.response?.data?.error || error.message || 'Network error occurred' };
   }
 };
 
@@ -437,12 +432,28 @@ export const rerunMyAnalysis = async (taskId) => {
   try { const res = await api.post(`/auth/my-analysis/${taskId}/rerun`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
 };
 
+export const rescanMyAnalysis = async (taskId) => {
+  try { const res = await api.post(`/auth/my-analysis/${taskId}/rescan`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
+};
+
+export const deleteMyAnalysis = async (taskId) => {
+  try { const res = await api.delete(`/auth/my-analysis/${taskId}`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
+};
+
 export const getMyQuickScanDetail = async (quickScanId) => {
   try { const res = await api.get(`/auth/my-quick-scans/${quickScanId}`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
 };
 
 export const rerunMyQuickScan = async (quickScanId) => {
   try { const res = await api.post(`/auth/my-quick-scans/${quickScanId}/rerun`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
+};
+
+export const rescanMyQuickScan = async (quickScanId) => {
+  try { const res = await api.post(`/auth/my-quick-scans/${quickScanId}/rescan`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
+};
+
+export const deleteMyQuickScan = async (quickScanId) => {
+  try { const res = await api.delete(`/auth/my-quick-scans/${quickScanId}`); return res.data; } catch (e) { return { error: e.response?.data?.error || e.message }; }
 };
 
 function parseFilenameFromContentDisposition(headerValue, fallback = 'report.pdf') {

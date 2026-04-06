@@ -12,6 +12,8 @@ export interface FullAuditEmailResult {
   rejected?: string[];
   attachmentCount?: number;
   uploadedCount?: number;
+  totalFiles?: number;
+  storageErrors?: string[];
   storage?: QueueReportStorage;
 }
 
@@ -116,12 +118,17 @@ export function applyFullAuditEmailResult(
     record.emailRejected = sendResult.rejected || [];
 
     if (typeof sendResult.attachmentCount === 'number') {
-      record.attachmentCount = sendResult.attachmentCount;
+      record.attachmentCount = Math.max(Number(record.attachmentCount || 0), sendResult.attachmentCount);
     }
 
+    const hasStoredObjects = Array.isArray(sendResult.storage?.objects) && sendResult.storage.objects.length > 0;
     if (sendResult.storage) {
       record.reportStorage = sendResult.storage;
-      record.reportDirectory = buildFullAuditReportDirectory(sendResult.storage, fallbackReportDirectory);
+      record.reportDirectory = hasStoredObjects
+        ? buildFullAuditReportDirectory(sendResult.storage, fallbackReportDirectory)
+        : fallbackReportDirectory;
+    } else {
+      record.reportDirectory = fallbackReportDirectory;
     }
 
     return;
@@ -142,10 +149,28 @@ export function finalizeFullAuditRecord(
   }
 
   if (!record.attachmentCount || record.attachmentCount === 0) {
+    const localFileCount = sendResult?.totalFiles || 0;
     const actualUploadedCount = sendResult?.uploadedCount || 0;
+    const storageErrors = (sendResult?.storageErrors || []).filter(Boolean);
+
+    if (localFileCount > 0) {
+      record.attachmentCount = localFileCount;
+      record.status = 'completed';
+      if (storageErrors.length > 0) {
+        record.emailError = storageErrors.join(' | ');
+      }
+      if (record.failureReason && record.failureReason.includes('watchdog timeout')) {
+        record.failureReason = undefined;
+      }
+      return;
+    }
+
     if (actualUploadedCount === 0) {
       record.status = 'failed';
-      record.failureReason = record.failureReason || 'No reports generated (0 files uploaded).';
+      record.failureReason = record.failureReason
+        || (storageErrors.length > 0
+          ? `No reports were available after storage upload failed: ${storageErrors.join(' | ')}`
+          : 'No reports generated (0 files uploaded).');
       return;
     }
 

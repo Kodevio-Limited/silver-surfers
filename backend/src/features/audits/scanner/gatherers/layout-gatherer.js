@@ -12,20 +12,20 @@ function collectBrittleLayoutElements() {
         break;
       } else {
         let sib = el, nth = 1;
-        while ((sib = (sib as any).previousElementSibling)) {
+        while ((sib = sib.previousElementSibling)) {
           if (sib.nodeName.toLowerCase() === selector) nth++;
         }
         if (nth !== 1) selector += `:nth-of-type(${nth})`;
       }
       path.unshift(selector);
-      el = (el as any).parentNode;
+      el = el.parentNode;
     }
     return path.join(' > ');
   }
 
   const candidates = [];
   const allElements = document.querySelectorAll('body *:not(script):not(style):not(meta):not(link)');
-  for (const element of (allElements as unknown as HTMLElement[])) {
+  for (const element of allElements) {
     const style = window.getComputedStyle(element);
     const rect = element.getBoundingClientRect();
 

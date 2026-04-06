@@ -11,19 +11,115 @@ import {
   type SubscriptionDocument,
 } from './audits.dependencies.ts';
 import { buildCandidateUrls, precheckCandidateUrl } from './precheck.service.ts';
+import { decodeAuthToken, readBearerToken } from '../auth/auth.middleware.ts';
 
 const auditsLogger = logger.child('feature:audits');
 
 const VALID_DEVICES = new Set(['desktop', 'mobile', 'tablet']);
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
+const ACTIVE_SUBSCRIPTION_STATUS_VALUES = ['active', 'trialing'];
 
 type SubscriptionState = SubscriptionDocument & {
   _id?: string;
   user?: string;
+  teamMembers?: Array<{
+    user?: { toString(): string } | string;
+    status?: string;
+  }>;
 };
 
 function createTaskId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeRequestedDevice(value: unknown): 'desktop' | 'mobile' | 'tablet' {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'mobile' || normalized === 'tablet') {
+    return normalized;
+  }
+
+  return 'desktop';
+}
+
+async function resolveQuickAuditSubscriptionForUserLookup(options: {
+  userId?: string;
+  email?: string;
+  role?: string;
+}): Promise<SubscriptionState | null> {
+  const [Subscription, User] = await Promise.all([
+    getSubscriptionModel(),
+    getUserModel(),
+  ]);
+
+  const normalizedEmail = String(options.email || '').trim().toLowerCase();
+  const user = options.userId
+    ? await User.findById(options.userId).lean()
+    : (normalizedEmail ? await User.findOne({ email: normalizedEmail }).lean() : null);
+
+  if (!user?._id) {
+    return null;
+  }
+
+  const userId = String(user._id);
+  const embeddedSubscriptionStatus = String(user?.subscription?.status || '').toLowerCase();
+  const embeddedPlanId = typeof user?.subscription?.planId === 'string' ? user.subscription.planId : undefined;
+  const normalizedEmbeddedStatus =
+    (options.role === 'admin' || user?.role === 'admin') && embeddedSubscriptionStatus === 'incomplete'
+      ? 'active'
+      : embeddedSubscriptionStatus;
+
+  let subscription = await Subscription.findOne({
+    user: userId,
+    status: { $in: ACTIVE_SUBSCRIPTION_STATUS_VALUES },
+  }).lean() as SubscriptionState | null;
+
+  if (!subscription && embeddedPlanId && ACTIVE_SUBSCRIPTION_STATUSES.has(normalizedEmbeddedStatus)) {
+    subscription = {
+      user: userId,
+      status: normalizedEmbeddedStatus,
+      planId: embeddedPlanId,
+    } as SubscriptionState;
+  }
+
+  if (!subscription && user?.subscription?.isTeamMember && user?.subscription?.teamOwner) {
+    subscription = await Subscription.findOne({
+      user: user.subscription.teamOwner,
+      status: { $in: ACTIVE_SUBSCRIPTION_STATUS_VALUES },
+    }).lean() as SubscriptionState | null;
+
+    if (subscription) {
+      const isActiveMember = (subscription.teamMembers || []).some((member) =>
+        String(member?.user || '') === userId && member?.status === 'active');
+
+      if (!isActiveMember) {
+        subscription = null;
+      }
+    }
+  }
+
+  return subscription;
+}
+
+async function resolveOptionalQuickAuditSubscription(request: Request, email?: string): Promise<SubscriptionState | null> {
+  const token = readBearerToken(request);
+  if (token) {
+    try {
+      const payload = decodeAuthToken(token);
+      const subscription = await resolveQuickAuditSubscriptionForUserLookup({
+        userId: payload.id,
+        email: payload.email,
+        role: payload.role,
+      });
+
+      if (subscription) {
+        return subscription;
+      }
+    } catch {
+      // Fall through to email-based lookup for public-form submissions.
+    }
+  }
+
+  return resolveQuickAuditSubscriptionForUserLookup({ email });
 }
 
 function resolveRequestedCreditType(
@@ -266,10 +362,27 @@ export async function startAudit(request: Request, response: Response): Promise<
 }
 
 export async function quickAudit(request: Request, response: Response): Promise<void> {
-  const { email, url, firstName, lastName } = request.body || {};
+  const { email, url, firstName, lastName, selectedDevice } = request.body || {};
   if (!email || !url) {
     response.status(400).json({ error: 'Email and URL are required.' });
     return;
+  }
+
+  const rawSelectedDevice = String(selectedDevice || '').trim().toLowerCase();
+  if (rawSelectedDevice && !VALID_DEVICES.has(rawSelectedDevice)) {
+    response.status(400).json({ error: 'Invalid device selection.' });
+    return;
+  }
+  const normalizedDevice = normalizeRequestedDevice(selectedDevice);
+
+  if (normalizedDevice !== 'desktop') {
+    const subscription = await resolveOptionalQuickAuditSubscription(request, String(email));
+    if (!subscription) {
+      response.status(403).json({
+        error: 'Tablet and mobile quick scans are available only for logged-in users with an active subscription.',
+      });
+      return;
+    }
   }
 
   const reachableUrl = await resolveReachableUrl(String(url));
@@ -291,6 +404,7 @@ export async function quickAudit(request: Request, response: Response): Promise<
       email: String(email).toLowerCase(),
       firstName: firstName || '',
       lastName: lastName || '',
+      device: normalizedDevice,
       status: 'queued',
       emailStatus: 'pending',
       scanDate: new Date(),
@@ -307,6 +421,7 @@ export async function quickAudit(request: Request, response: Response): Promise<
       subscriptionId: null,
       priority: 2,
       quickScanId: quickScanRecord._id,
+      selectedDevice: normalizedDevice,
     });
 
     response.status(202).json({

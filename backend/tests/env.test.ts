@@ -11,6 +11,10 @@ test('readEnv uses scanner URL alias and parses booleans/numbers', () => {
     PYTHON_SCANNER_URL: 'http://legacy-scanner:8001',
     REQUEST_LOG_ENABLED: 'false',
     PROCESSING_TIMEOUT_MS: '12345',
+    AUDIT_RECOVERY_CHECK_INTERVAL_MS: '60001',
+    AUDIT_RECOVERY_RETRY_DELAY_MS: '120000',
+    AUDIT_RECOVERY_BATCH_SIZE: '12',
+    AUDIT_RECOVERY_MAX_ATTEMPTS: '4',
     REDIS_URL: 'redis://cache:6379/0',
     BULLMQ_PREFIX: 'silver-test',
     OPENAI_API_KEY: 'sk-test',
@@ -40,6 +44,10 @@ test('readEnv uses scanner URL alias and parses booleans/numbers', () => {
   assert.equal(parsed.scannerServiceUrl, 'http://legacy-scanner:8001');
   assert.equal(parsed.requestLogEnabled, false);
   assert.equal(parsed.processingTimeoutMs, 12345);
+  assert.equal(parsed.auditRecoveryCheckIntervalMs, 60001);
+  assert.equal(parsed.auditRecoveryRetryDelayMs, 120000);
+  assert.equal(parsed.auditRecoveryBatchSize, 12);
+  assert.equal(parsed.auditRecoveryMaxAttempts, 4);
   assert.equal(parsed.queueBackend, 'bullmq');
   assert.equal(parsed.redisUrl, 'redis://cache:6379/0');
   assert.equal(parsed.bullMqPrefix, 'silver-test');
@@ -74,6 +82,10 @@ test('readEnv falls back to localhost scanner URL', () => {
   assert.equal(parsed.openAiModel, 'gpt-4.1-mini');
   assert.equal(parsed.openAiBaseUrl, 'https://api.openai.com/v1');
   assert.equal(parsed.openAiTimeoutMs, 20_000);
+  assert.equal(parsed.auditRecoveryCheckIntervalMs, 60_000);
+  assert.equal(parsed.auditRecoveryRetryDelayMs, 5 * 60 * 1000);
+  assert.equal(parsed.auditRecoveryBatchSize, 10);
+  assert.equal(parsed.auditRecoveryMaxAttempts, 3);
   assert.equal(parsed.scannerMaxConcurrentAudits, 1);
   assert.equal(parsed.scannerMaxQueuedAudits, 8);
   assert.equal(parsed.fullAuditMaxPages, 25);

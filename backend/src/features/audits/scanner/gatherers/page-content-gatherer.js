@@ -17,14 +17,14 @@ class PageContentGatherer extends Gatherer {
 
     const pageContent = await context.driver.executionContext.evaluate(
       (compromiseLib) => {
-        (eval as any)(compromiseLib);
+        eval(compromiseLib);
         
         const fullText = document.body.innerText || '';
         
         try {
-          const doc = (window as any).nlp(fullText);
+          const doc = window.nlp(fullText);
           const allSentences = doc.sentences().json();
-          const sentencesWithVerbs = doc.sentences().filter((s: any) => s.verbs().length > 0).json();
+          const sentencesWithVerbs = doc.sentences().filter((s) => s.verbs().length > 0).json();
           
           return {
             fullText: fullText,
@@ -38,11 +38,11 @@ class PageContentGatherer extends Gatherer {
             error: null,
             url: window.location.href
           };
-        } catch (e: any) {
+        } catch (e) {
           return {
             fullText: fullText,
             nlpAnalysis: null,
-            error: e.message,
+            error: e instanceof Error ? e.message : String(e),
             url: window.location.href
           };
         }

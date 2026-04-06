@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import { connectDatabase, disconnectDatabase } from '../config/database.ts';
 import { env } from '../config/env.ts';
 import { logger } from '../config/logger.ts';
+import { recoverAuditRecords } from '../features/audits/audit-recovery.ts';
 import { runFullAuditProcess, runQuickScanProcess } from '../features/audits/audit-processors.ts';
 import { setAuditQueues } from '../features/audits/audits.runtime.ts';
 import { CacheManager } from '../infrastructure/cache/cache-manager.ts';
@@ -15,6 +16,7 @@ const runtimeLogger = logger.child('runtime');
 type RuntimeMode = 'api' | 'worker';
 
 let watchdogTimer: NodeJS.Timeout | undefined;
+let auditRecoveryTimer: NodeJS.Timeout | undefined;
 
 export interface RuntimeDependencies {
   mode: RuntimeMode;
@@ -94,6 +96,7 @@ export async function initializeWorkerRuntime(): Promise<RuntimeDependencies> {
   const cacheManager = createCacheManager();
   cacheManager.start();
   startWatchdog();
+  startAuditRecoveryChecker(fullAuditQueue, quickScanQueue);
 
   runtimeLogger.info('Initialized worker runtime.', {
     backendRoot: env.backendRoot,
@@ -155,10 +158,48 @@ function startWatchdog(): void {
   watchdogTimer.unref();
 }
 
+function startAuditRecoveryChecker(fullAuditQueue: JobQueue, quickScanQueue: JobQueue): void {
+  if (auditRecoveryTimer) {
+    return;
+  }
+
+  const runRecoveryPass = async () => {
+    try {
+      const summary = await recoverAuditRecords({
+        fullAuditQueue,
+        quickScanQueue,
+      });
+
+      if (
+        summary.fullAuditsRecovered > 0
+        || summary.quickScansRecovered > 0
+        || summary.errors > 0
+      ) {
+        runtimeLogger.warn('Audit recovery checker completed a pass.', summary);
+      }
+    } catch (error) {
+      runtimeLogger.error('Audit recovery checker failed.', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  void runRecoveryPass();
+  auditRecoveryTimer = setInterval(() => {
+    void runRecoveryPass();
+  }, env.auditRecoveryCheckIntervalMs);
+  auditRecoveryTimer.unref();
+}
+
 export async function shutdownRuntime(dependencies: RuntimeDependencies): Promise<void> {
   if (dependencies.mode === 'worker' && watchdogTimer) {
     clearInterval(watchdogTimer);
     watchdogTimer = undefined;
+  }
+
+  if (dependencies.mode === 'worker' && auditRecoveryTimer) {
+    clearInterval(auditRecoveryTimer);
+    auditRecoveryTimer = undefined;
   }
 
   dependencies.cacheManager?.stop();

@@ -454,6 +454,21 @@ export async function sendAuditReportEmail(options: AuditReportEmailOptions): Pr
     provider: isS3Configured() ? 's3' : 'unconfigured',
   });
 
+  if (files.length === 0) {
+    reportDeliveryLogger.warn('Audit report email skipped because no report files were generated.', {
+      to: options.to,
+      subject: options.subject,
+      folderPath: options.folderPath,
+      provider: isS3Configured() ? 's3' : 'unconfigured',
+    });
+    return {
+      success: false,
+      error: 'No report files were available to send.',
+      totalFiles: 0,
+      totalSizeMB: '0.00',
+    };
+  }
+
   let uploadResult: StorageUploadResult | undefined;
   const storageErrors: string[] = [];
 
@@ -464,10 +479,21 @@ export async function sendAuditReportEmail(options: AuditReportEmailOptions): Pr
       kind: options.isQuickScan ? 'quick-scans' : 'audit-reports',
     });
 
-    if (uploadResult.storage.provider === 's3' && uploadResult.storage.bucket && uploadResult.storage.prefix) {
+    if ((uploadResult?.uploadedFiles || []).length === 0) {
+      reportDeliveryLogger.warn('No report files were available for cloud upload.', {
+        to: options.to,
+        subject: options.subject,
+        folderPath: options.folderPath,
+        localFileCount: files.length,
+        provider: uploadResult.storage.provider,
+        bucket: uploadResult.storage.bucket,
+        prefix: uploadResult.storage.prefix,
+      });
+    } else if (uploadResult.storage.provider === 's3' && uploadResult.storage.bucket && uploadResult.storage.prefix) {
       reportDeliveryLogger.info('Uploaded report files to S3.', {
         to: options.to,
         s3Uri: buildS3Uri(uploadResult.storage.bucket, uploadResult.storage.prefix),
+        uploadedCount: uploadResult.uploadedFiles.length,
       });
     }
   } catch (error) {

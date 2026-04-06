@@ -137,8 +137,11 @@ export async function generateLiteAccessibilityReport(
 
 export async function calculateSeniorFriendlinessScore(
   report: Record<string, unknown>,
+  options?: {
+    isLiteVersion?: boolean;
+  },
 ): Promise<{ finalScore: number }> {
-  return tsCalculateSeniorFriendlinessScore(report) as any;
+  return tsCalculateSeniorFriendlinessScore(report, options) as any;
 }
 
 export async function generateSeniorAccessibilityReport(options: {
@@ -276,6 +279,28 @@ export async function generateAuditAiSummaryPdf(
   },
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    const normalizedHeadline = String(aiReport?.headline || '').trim();
+    const normalizedSummary = String(aiReport?.summary || '').trim();
+    const normalizedBusinessImpact = String(aiReport?.businessImpact || '').trim();
+    const normalizedPrioritySummary = String(aiReport?.prioritySummary || '').trim();
+    const normalizedStakeholderNote = String(aiReport?.stakeholderNote || '').trim();
+    const normalizedRecommendations = Array.isArray(aiReport?.topRecommendations)
+      ? aiReport.topRecommendations.map((item) => String(item || '').trim()).filter(Boolean)
+      : [];
+    const normalizedDimensions = Array.isArray(options.scorecard?.dimensions)
+      ? options.scorecard.dimensions
+        .map((dimension) => ({
+          label: String(dimension?.label || '').trim(),
+          score: Number(dimension?.score || 0),
+        }))
+        .filter((dimension) => dimension.label)
+      : [];
+    const normalizedTopIssues = Array.isArray(options.scorecard?.topIssues)
+      ? options.scorecard.topIssues
+        .map((issue) => String(issue?.title || '').trim())
+        .filter(Boolean)
+      : [];
+
     const doc = new PDFDocument({
       margins: {
         top: 48,
@@ -296,51 +321,18 @@ export async function generateAuditAiSummaryPdf(
     const generatedAt = new Date(aiReport.generatedAt);
     const metadataEntries = [
       ['URL', options.url],
-      ['Status', aiReport.status],
+      ['Status', String(aiReport?.status || 'generated')],
       ['Generated At', Number.isNaN(generatedAt.getTime()) ? aiReport.generatedAt : generatedAt.toLocaleString()],
     ];
     const summaryHighlights = [
-      aiReport.headline,
-      aiReport.summary.split(/(?<=[.!?])\s+/)[0] || aiReport.summary,
-      aiReport.businessImpact.split(/(?<=[.!?])\s+/)[0] || aiReport.businessImpact,
-      aiReport.prioritySummary.split(/(?<=[.!?])\s+/)[0] || aiReport.prioritySummary,
+      normalizedHeadline,
+      normalizedSummary.split(/(?<=[.!?])\s+/)[0] || normalizedSummary,
+      normalizedBusinessImpact.split(/(?<=[.!?])\s+/)[0] || normalizedBusinessImpact,
+      normalizedPrioritySummary.split(/(?<=[.!?])\s+/)[0] || normalizedPrioritySummary,
     ]
       .map((item) => String(item || '').trim())
       .filter(Boolean)
       .slice(0, 4);
-
-    let currentPageNumber = 1;
-
-    const drawPageFooter = (pageNumber: number): void => {
-      const previousX = doc.x;
-      const previousY = doc.y;
-      const footerY = doc.page.height - 36;
-      const leftX = doc.page.margins.left;
-      const rightX = doc.page.width - doc.page.margins.right;
-
-      doc.strokeColor('#D1D5DB')
-        .lineWidth(0.5)
-        .moveTo(leftX, footerY - 8)
-        .lineTo(rightX, footerY - 8)
-        .stroke();
-
-      doc.font('RegularFont').fontSize(9).fillColor('#6B7280')
-        .text('SilverSurfers.ai', leftX, footerY, {
-          width: 180,
-          align: 'left',
-          lineBreak: false,
-        });
-
-      doc.font('RegularFont').fontSize(9).fillColor('#6B7280')
-        .text(`Page ${pageNumber}`, rightX - 80, footerY, {
-          width: 80,
-          align: 'right',
-          lineBreak: false,
-        });
-
-      doc.x = previousX;
-      doc.y = previousY;
-    };
 
     const renderSection = (heading: string, body: string): void => {
       if (!body?.trim()) {
@@ -386,12 +378,9 @@ export async function generateAuditAiSummaryPdf(
         return;
       }
 
-      const weakestDimension = [...(options.scorecard.dimensions || [])]
+      const weakestDimension = [...normalizedDimensions]
         .sort((left, right) => left.score - right.score)[0];
-      const topIssues = (options.scorecard.topIssues || [])
-        .slice(0, 3)
-        .map((issue) => issue.title)
-        .filter(Boolean);
+      const topIssues = normalizedTopIssues.slice(0, 3);
 
       const snapshotItems = [
         `Overall score: ${Math.round(Number(options.scorecard.overallScore || 0))}%`,
@@ -405,14 +394,6 @@ export async function generateAuditAiSummaryPdf(
       renderBulletSection('Report Snapshot', snapshotItems);
     };
 
-    drawPageFooter(currentPageNumber);
-    doc.on('pageAdded', () => {
-      currentPageNumber += 1;
-      drawPageFooter(currentPageNumber);
-      doc.x = doc.page.margins.left;
-      doc.y = doc.page.margins.top;
-    });
-
     doc.font('BoldFont').fontSize(24).fillColor('#0F172A')
       .text(options.title || 'AI Executive Summary', {
         width: contentWidth,
@@ -420,7 +401,7 @@ export async function generateAuditAiSummaryPdf(
 
     doc.moveDown(0.3);
     doc.font('BoldFont').fontSize(18).fillColor('#1D4ED8')
-      .text(aiReport.headline, {
+      .text(normalizedHeadline || 'Accessibility Summary', {
         width: contentWidth,
       });
 
@@ -435,11 +416,11 @@ export async function generateAuditAiSummaryPdf(
 
     renderSnapshot();
     renderBulletSection('Executive Highlights', summaryHighlights);
-    renderSection('Summary', aiReport.summary);
-    renderSection('Business Impact', aiReport.businessImpact);
-    renderSection('Priority Summary', aiReport.prioritySummary);
-    renderBulletSection('Top Recommendations', aiReport.topRecommendations.map((recommendation, index) => `${index + 1}. ${recommendation}`));
-    renderSection('Stakeholder Note', aiReport.stakeholderNote);
+    renderSection('Summary', normalizedSummary);
+    renderSection('Business Impact', normalizedBusinessImpact);
+    renderSection('Priority Summary', normalizedPrioritySummary);
+    renderBulletSection('Top Recommendations', normalizedRecommendations.map((recommendation, index) => `${index + 1}. ${recommendation}`));
+    renderSection('Stakeholder Note', normalizedStakeholderNote);
 
     doc.end();
     writeStream.on('finish', () => resolve(options.outputPath));

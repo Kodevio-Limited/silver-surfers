@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { quickAudit } from '../api';
+import { getSubscription, quickAudit } from '../api';
 
 // Simple modal component for demo
 const ScanResultsModal = ({ result, isVisible, onClose }) => {
@@ -39,13 +39,15 @@ const MainScreen = () => {
    firstName: '',
    lastName: ''
  });
- const [selectedDevice, setSelectedDevice] = useState('desktop'); // Quick scan only supports desktop
+ const [selectedDevice, setSelectedDevice] = useState('desktop');
  const [isScanning, setIsScanning] = useState(false);
  const [error, setError] = useState('');
  const [success, setSuccess] = useState('');
+ const [subscription, setSubscription] = useState(null);
 const [showResultsModal, setShowResultsModal] = useState(false);
 const [scanResult, setScanResult] = useState(null);
 const [formHighlighted, setFormHighlighted] = useState(false);
+ const hasSubscriptionQuickScanAccess = ['active', 'trialing'].includes(String(subscription?.status || '').toLowerCase());
 
  const handleInputChange = (e) => {
    setScanData({
@@ -130,7 +132,13 @@ const handleScanSubmit = async (e) => {
       url = `https://${url}`;
     }
 
-    const res = await quickAudit(scanData.email.trim(), url, scanData.firstName.trim(), scanData.lastName.trim());
+    const res = await quickAudit(
+      scanData.email.trim(),
+      url,
+      scanData.firstName.trim(),
+      scanData.lastName.trim(),
+      selectedDevice,
+    );
     if (res?.error) {
       setError(res.error);
     } else {
@@ -148,6 +156,33 @@ const handleScanSubmit = async (e) => {
 };
 
  // If navigated from Services with openScan=1, scroll into view
+ useEffect(() => {
+   let mounted = true;
+
+   (async () => {
+     const result = await getSubscription();
+     if (!mounted) {
+       return;
+     }
+
+     if (result?.subscription) {
+       setSubscription(result.subscription);
+     } else {
+       setSubscription(null);
+     }
+   })();
+
+   return () => {
+     mounted = false;
+   };
+ }, []);
+
+ useEffect(() => {
+   if (!hasSubscriptionQuickScanAccess && selectedDevice !== 'desktop') {
+     setSelectedDevice('desktop');
+   }
+ }, [hasSubscriptionQuickScanAccess, selectedDevice]);
+
  useEffect(() => {
    const params = new URLSearchParams(window.location.search);
    if (params.get('openScan') === '1') {
@@ -324,30 +359,52 @@ const handleScanSubmit = async (e) => {
                      
                      <button
                        type="button"
-                       disabled
-                       className="p-3 border-2 border-gray-500/40 bg-gray-600/30 text-gray-400 rounded-lg cursor-not-allowed opacity-70"
+                       onClick={() => hasSubscriptionQuickScanAccess && setSelectedDevice('tablet')}
+                       disabled={!hasSubscriptionQuickScanAccess}
+                       className={`p-3 border-2 rounded-lg transition-all ${
+                         hasSubscriptionQuickScanAccess
+                           ? selectedDevice === 'tablet'
+                             ? 'border-green-400 bg-green-500/30 text-white shadow-lg'
+                             : 'border-white/30 bg-white/10 text-white hover:border-white/50'
+                           : 'border-gray-500/40 bg-gray-600/30 text-gray-400 cursor-not-allowed opacity-70'
+                       }`}
                      >
                        <svg className="w-6 h-6 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
                          <path d="M7 2a2 2 0 00-2 2v12a2 2 0 002 2h6a2 2 0 002-2V4a2 2 0 00-2-2H7zm3 14a1 1 0 100-2 1 1 0 000 2z" />
                        </svg>
                        <div className="text-sm font-semibold">Tablet</div>
-                       <div className="text-xs text-orange-300 font-medium mt-0.5">Subscription</div>
+                       <div className={`text-xs font-medium mt-0.5 ${hasSubscriptionQuickScanAccess ? 'text-green-300' : 'text-orange-300'}`}>
+                         {hasSubscriptionQuickScanAccess ? 'Unlocked' : 'Subscription'}
+                       </div>
                      </button>
                      
                      <button
                        type="button"
-                       disabled
-                       className="p-3 border-2 border-gray-500/40 bg-gray-600/30 text-gray-400 rounded-lg cursor-not-allowed opacity-70"
+                       onClick={() => hasSubscriptionQuickScanAccess && setSelectedDevice('mobile')}
+                       disabled={!hasSubscriptionQuickScanAccess}
+                       className={`p-3 border-2 rounded-lg transition-all ${
+                         hasSubscriptionQuickScanAccess
+                           ? selectedDevice === 'mobile'
+                             ? 'border-green-400 bg-green-500/30 text-white shadow-lg'
+                             : 'border-white/30 bg-white/10 text-white hover:border-white/50'
+                           : 'border-gray-500/40 bg-gray-600/30 text-gray-400 cursor-not-allowed opacity-70'
+                       }`}
                      >
                        <svg className="w-6 h-6 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
                          <path fillRule="evenodd" d="M7 2a2 2 0 00-2 2v12a2 2 0 002 2h6a2 2 0 002-2V4a2 2 0 00-2-2H7zm3 14a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                        </svg>
                        <div className="text-sm font-semibold">Mobile</div>
-                       <div className="text-xs text-orange-300 font-medium mt-0.5">Subscription</div>
+                       <div className={`text-xs font-medium mt-0.5 ${hasSubscriptionQuickScanAccess ? 'text-green-300' : 'text-orange-300'}`}>
+                         {hasSubscriptionQuickScanAccess ? 'Unlocked' : 'Subscription'}
+                       </div>
                      </button>
                    </div>
                    <p className="text-xs text-gray-300 text-center">
-                     📱 Tablet and Mobile testing available with <a href="/services" className="underline hover:text-white">paid subscriptions</a>
+                     {hasSubscriptionQuickScanAccess ? (
+                       <>Active subscription detected. Tablet and mobile quick scans are unlocked.</>
+                     ) : (
+                       <>📱 Tablet and Mobile testing available with <a href="/services" className="underline hover:text-white">paid subscriptions</a></>
+                     )}
                    </p>
                  </div>
                  

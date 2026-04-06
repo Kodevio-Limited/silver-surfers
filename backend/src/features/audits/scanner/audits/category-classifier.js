@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '../../../../../');
 dotenv.config({ path: path.join(rootDir, '.env') });
 
-export async function classifyWebsiteCategory(textFragments: string[]) {
+export async function classifyWebsiteCategory(textFragments) {
     if (!process.env.JINA_API_KEY) {
         return getFallbackResponse('Missing API Key');
     }
@@ -40,7 +40,7 @@ export async function classifyWebsiteCategory(textFragments: string[]) {
         const predictions = response.data?.data?.[0]?.predictions;
 
         if (predictions && predictions.length > 0) {
-            predictions.sort((a: any, b: any) => b.score - a.score);
+            predictions.sort((a, b) => b.score - a.score);
 
             const detectedCategory = predictions[0].label;
             const confidenceScore = `${(predictions[0].score * 100).toFixed(1)}%`;
@@ -57,12 +57,12 @@ export async function classifyWebsiteCategory(textFragments: string[]) {
         } else {
             return getFallbackResponse('No predictions returned');
         }
-    } catch (error: any) {
-        return getFallbackResponse(error.message);
+    } catch (error) {
+        return getFallbackResponse(error instanceof Error ? error.message : String(error));
     }
 }
 
-function getFallbackResponse(reason: string) {
+function getFallbackResponse(reason) {
   return {
     category: 'General',
     adjustment: 0,
@@ -73,8 +73,8 @@ function getFallbackResponse(reason: string) {
   };
 }
 
-function getCategoryAdjustment(category: string) {
-  const adjustments: Record<string, { adjustment: number, threshold: { min: number, max: number }, rationale: string }> = {
+function getCategoryAdjustment(category) {
+  const adjustments = {
     'Healthcare Medical': { adjustment: 15, threshold: { min: 45, max: 60 }, rationale: 'Medical terminology density increases sentence difficulty' },
     'Government Legal': { adjustment: 12, threshold: { min: 48, max: 62 }, rationale: 'Legalese and statutory references are unavoidable' },
     'Financial Banking': { adjustment: 10, threshold: { min: 50, max: 65 }, rationale: 'Financial jargon is domain-specific' },

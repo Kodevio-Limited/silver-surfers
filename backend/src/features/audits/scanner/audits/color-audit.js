@@ -25,7 +25,7 @@ function rgbToLab(rgbString) {
   return {L, a, b: B};
 }
 
-function deltaE(color1: string, color2: string) {
+function deltaE(color1, color2) {
   const lab1 = rgbToLab(color1);
   const lab2 = rgbToLab(color2);
   const deltaL = lab1.L - lab2.L;
@@ -45,7 +45,7 @@ class ColorAudit extends Audit {
     };
   }
 
-  static getFailureReason(difference: number, minimum: number) {
+  static getFailureReason(difference, minimum) {
     if (difference === 0) {
       return 'The link color is identical to the surrounding text, making it impossible to distinguish by color alone.';
     }
@@ -64,11 +64,11 @@ class ColorAudit extends Audit {
 
     const accessibilityNodeMap = new Map();
     const allAccessibilityNodes = (accessibilityResults.violations || [])
-      .flatMap((v: any) => v.nodes || [])
-      .concat((accessibilityResults.passes || []).flatMap((p: any) => p.nodes || []))
-      .concat((accessibilityResults.incomplete || []).flatMap((i: any) => i.nodes || []));
+      .flatMap((v) => v.nodes || [])
+      .concat((accessibilityResults.passes || []).flatMap((p) => p.nodes || []))
+      .concat((accessibilityResults.incomplete || []).flatMap((i) => i.nodes || []));
 
-    allAccessibilityNodes.forEach((accessNode: any) => {
+    allAccessibilityNodes.forEach((accessNode) => {
       if (accessNode?.node?.boundingRect) {
         const rect = accessNode.node.boundingRect;
         const keys = [

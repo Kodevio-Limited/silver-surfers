@@ -47,6 +47,8 @@ export interface AnalysisRecordDocument {
   emailError?: string;
   reportDirectory?: string;
   reportStorage?: QueueReportStorage;
+  autoRecoveryAttempts?: number;
+  lastAutoRecoveryAt?: Date;
   reportFiles?: Array<{
     id?: string;
     filename?: string;
@@ -69,6 +71,7 @@ export interface QuickScanDocument {
   email?: string;
   firstName?: string;
   lastName?: string;
+  device?: string | null;
   status?: string;
   emailStatus?: string;
   emailError?: string | null;
@@ -80,6 +83,8 @@ export interface QuickScanDocument {
   reportDirectory?: string;
   aiReport?: AuditAiReport;
   reportStorage?: QueueReportStorage;
+  autoRecoveryAttempts?: number;
+  lastAutoRecoveryAt?: Date;
   reportFiles?: Array<{
     id?: string;
     filename?: string;

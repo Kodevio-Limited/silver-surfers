@@ -105,6 +105,10 @@ export interface AppEnv {
   processingTimeoutMs: number;
   queuedTimeoutMs: number;
   watchdogIntervalMs: number;
+  auditRecoveryCheckIntervalMs: number;
+  auditRecoveryRetryDelayMs: number;
+  auditRecoveryBatchSize: number;
+  auditRecoveryMaxAttempts: number;
   scannerServiceUrl: string;
   chromePath?: string;
   requestLogEnabled: boolean;
@@ -153,6 +157,10 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     processingTimeoutMs: parseNumber(source.PROCESSING_TIMEOUT_MS, 4 * 60 * 60 * 1000),
     queuedTimeoutMs: parseNumber(source.QUEUED_TIMEOUT_MS, 60 * 60 * 1000),
     watchdogIntervalMs: parseNumber(source.WATCHDOG_INTERVAL_MS, 5 * 60 * 1000),
+    auditRecoveryCheckIntervalMs: parseBoundedNumber(source.AUDIT_RECOVERY_CHECK_INTERVAL_MS, 60_000, 5_000, 60 * 60 * 1000),
+    auditRecoveryRetryDelayMs: parseBoundedNumber(source.AUDIT_RECOVERY_RETRY_DELAY_MS, 5 * 60 * 1000, 5_000, 24 * 60 * 60 * 1000),
+    auditRecoveryBatchSize: parseBoundedNumber(source.AUDIT_RECOVERY_BATCH_SIZE, 10, 1, 100),
+    auditRecoveryMaxAttempts: parseBoundedNumber(source.AUDIT_RECOVERY_MAX_ATTEMPTS, 3, 1, 20),
     scannerServiceUrl:
       source.SCANNER_SERVICE_URL?.trim()
       || source.PYTHON_SCANNER_URL?.trim()

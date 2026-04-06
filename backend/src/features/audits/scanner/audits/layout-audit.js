@@ -11,7 +11,7 @@ class LayoutAudit extends Audit {
     };
   }
 
-  static getFailureReason(overflowStyle: string) {
+  static getFailureReason(overflowStyle) {
     switch (overflowStyle) {
       case 'hidden':
       case 'clip':
@@ -35,9 +35,9 @@ class LayoutAudit extends Audit {
 
     const accessibilityNodeMap = new Map();
     const allAccessibilityNodes = (accessibilityResults.violations || [])
-      .flatMap((v: any) => v.nodes || [])
-      .concat((accessibilityResults.passes || []).flatMap((p: any) => p.nodes || []))
-      .concat((accessibilityResults.incomplete || []).flatMap((i: any) => i.nodes || []));
+      .flatMap((v) => v.nodes || [])
+      .concat((accessibilityResults.passes || []).flatMap((p) => p.nodes || []))
+      .concat((accessibilityResults.incomplete || []).flatMap((i) => i.nodes || []));
 
     for (const accessNode of allAccessibilityNodes) {
       if (accessNode?.node?.boundingRect) {

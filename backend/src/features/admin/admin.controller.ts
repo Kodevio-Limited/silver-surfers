@@ -12,6 +12,15 @@ import { getStripeClient } from '../billing/stripe-client.ts';
 const MANAGEABLE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused'];
 const TERMINAL_STRIPE_SUBSCRIPTION_STATUSES = new Set(['canceled', 'incomplete_expired']);
 
+function normalizeAdminManagedSubscriptionStatus(status: unknown): string {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'incomplete' || normalized === 'incomplete_expired') {
+    return 'active';
+  }
+
+  return normalized || 'active';
+}
+
 function createTaskId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -51,6 +60,8 @@ export async function rerunAnalysis(request: Request, response: Response): Promi
     record.attachmentCount = 0;
     record.emailAccepted = [];
     record.emailRejected = [];
+    record.autoRecoveryAttempts = 0;
+    record.lastAutoRecoveryAt = undefined;
     await record.save().catch(() => undefined);
 
     const { fullAuditQueue } = getAuditQueues();
@@ -638,7 +649,7 @@ export async function updateUserSubscription(request: Request, response: Respons
         stripeCustomerId: user.stripeCustomerId,
         planId: plan.id,
         priceId: plan.yearlyPriceId,
-        status: stripeSubscription.status,
+        status: normalizeAdminManagedSubscriptionStatus(stripeSubscription.status),
         limits: plan.limits,
         usage: {
           scansThisMonth: 0,
@@ -647,13 +658,16 @@ export async function updateUserSubscription(request: Request, response: Respons
         currentPeriodStart,
         currentPeriodEnd,
         cancelAtPeriodEnd: Boolean(stripeSubscription.cancel_at_period_end),
+        metadata: {
+          createdBy: 'admin',
+        },
       });
 
       await newSubscription.save();
 
       await User.findByIdAndUpdate(userId, {
         'subscription.stripeSubscriptionId': stripeSubscription.id,
-        'subscription.status': stripeSubscription.status,
+        'subscription.status': normalizeAdminManagedSubscriptionStatus(stripeSubscription.status),
         'subscription.planId': plan.id,
         'subscription.priceId': plan.yearlyPriceId,
         'subscription.usage.scansThisMonth': 0,
@@ -702,8 +716,12 @@ export async function updateUserSubscription(request: Request, response: Respons
       planId: plan.id,
       priceId: plan.yearlyPriceId,
       limits: plan.limits,
-      status: updatedSubscription.status,
+      status: normalizeAdminManagedSubscriptionStatus(updatedSubscription.status),
       cancelAtPeriodEnd: Boolean(updatedSubscription.cancel_at_period_end),
+      metadata: {
+        ...(currentSubscription.metadata || {}),
+        createdBy: 'admin',
+      },
     };
     if (updatedPeriodStart) {
       subscriptionUpdate.currentPeriodStart = updatedPeriodStart;
@@ -715,7 +733,7 @@ export async function updateUserSubscription(request: Request, response: Respons
 
     const userSubscriptionUpdate: Record<string, unknown> = {
       'subscription.stripeSubscriptionId': updatedSubscription.id,
-      'subscription.status': updatedSubscription.status,
+      'subscription.status': normalizeAdminManagedSubscriptionStatus(updatedSubscription.status),
       'subscription.planId': plan.id,
       'subscription.priceId': plan.yearlyPriceId,
       'subscription.cancelAtPeriodEnd': Boolean(updatedSubscription.cancel_at_period_end),

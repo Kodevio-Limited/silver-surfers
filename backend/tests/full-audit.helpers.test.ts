@@ -43,6 +43,12 @@ test('applyFullAuditEmailResult stores S3 metadata and finalizes successful jobs
       provider: 's3',
       bucket: 'silver-reports',
       prefix: 'reports/audit-123',
+      objects: [
+        {
+          filename: 'audit-summary.pdf',
+          key: 'reports/audit-123/audit-summary.pdf',
+        },
+      ],
     },
   }, '/tmp/reports');
   finalizeFullAuditRecord(record, { success: true, attachmentCount: 3 });
