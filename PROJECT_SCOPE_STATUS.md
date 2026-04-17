@@ -286,9 +286,9 @@ Current state:
 Missing:
 
 - explicit grouping into:
-  - Quick Wins
-  - Medium Effort
-  - High Effort
+    - Quick Wins
+    - Medium Effort
+    - High Effort
 - stronger business prioritization language
 - CMS-specific snippet generation as a formal engine
 
@@ -452,9 +452,9 @@ Not found as active platform capabilities:
 3. Align the written scope so it clearly says `axe-core / Lighthouse-based accessibility engine` unless the paid axe DevTools product is contractually required.
 4. Expand crawler depth if the requirement is truly up to 500 pages.
 5. Upgrade the remediation roadmap into clear named buckets:
-   - Quick Wins
-   - Medium Effort
-   - High Effort
+    - Quick Wins
+    - Medium Effort
+    - High Effort
 6. Decide how much enterprise report polish is required for Milestone 1 vs later milestones.
 
 ### What you still have to do for later milestones

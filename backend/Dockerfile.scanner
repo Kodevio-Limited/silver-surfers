@@ -11,7 +11,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /usr/src/app
 
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --prod --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 # ────────────────────────────────────────────────────────────────
 # Stage 2: scanner — Lighthouse + Playwright + Chromium
