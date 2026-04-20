@@ -12,7 +12,6 @@ import {
     rescanMyAnalysis,
     rescanMyQuickScan,
 } from "../api";
-import "./About.css";
 
 const StatusPill = ({ value }) => {
     const cls =
@@ -302,7 +301,7 @@ export default function Account() {
 
                         <section className="space-y-4">
                             <div className="rounded-2xl border border-white/10 bg-black/20 p-2">
-                                <div className="grid grid-cols-1 !gap-2 sm:grid-cols-2">
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                     <button
                                         onClick={() => setActiveTab("full-audits")}
                                         className={`rounded-xl px-4 py-3 text-left transition ${activeTab === "full-audits" ? "bg-white text-gray-950 shadow-lg" : "bg-white/5 text-white hover:bg-white/10"}`}

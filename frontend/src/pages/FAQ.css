@@ -1,150 +1,9 @@
 /* FAQ.css */
 
-/* Base styles */
+/* Base */
 .faq-container {
   min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
-/* Hero Section */
-.hero-section {
-  position: relative;
-  padding: 8rem 2rem;
-  background: linear-gradient(135deg, #0c4a6e 0%, #0369a1 25%, #065f46 50%, #0f766e 75%, #0891b2 100%);
-  overflow: hidden;
-  text-align: center;
-  color: white;
-}
-
-.hero-bg-effects {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-}
-
-.bg-effect {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(60px);
-  opacity: 0.3;
-  animation: pulse 3s ease-in-out infinite;
-}
-
-.bg-effect-1 {
-  top: 5rem;
-  left: 2rem;
-  width: 18rem;
-  height: 18rem;
-  background: linear-gradient(135deg, #ec4899, #8b5cf6);
-}
-
-.bg-effect-2 {
-  bottom: 5rem;
-  right: 2rem;
-  width: 20rem;
-  height: 20rem;
-  background: linear-gradient(135deg, #60a5fa, #06b6d4);
-  animation-delay: 0.7s;
-}
-
-.bg-effect-3 {
-  top: 50%;
-  left: 30%;
-  width: 15rem;
-  height: 15rem;
-  background: linear-gradient(135deg, #a78bfa, #8b5cf6);
-  animation-delay: 1.4s;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.3; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.1); }
-}
-
-.hero-content {
-  position: relative;
-  z-index: 10;
-  max-width: 60rem;
-  margin: 0 auto;
-}
-
-.hero-title {
-  font-size: 4rem;
-  font-weight: bold;
-  margin-bottom: 1.5rem;
-  line-height: 1.1;
-}
-
-.gradient-text {
-  background: linear-gradient(90deg, #fbbf24, #a78bfa, #06b6d4);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  display: block;
-}
-
-.white-text {
-  color: white;
-  display: block;
-  margin-top: 0.5rem;
-}
-
-.hero-subtitle {
-  font-size: 1.5rem;
-  margin: 0 auto;
-  max-width: 40rem;
-  line-height: 1.6;
-}
-
-/* Navigation Section */
-.nav-section {
-  padding: 3rem 2rem;
-  background: white;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.nav-container {
-  max-width: 60rem;
-  margin: 0 auto;
-  text-align: center;
-}
-
-.nav-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #111827;
-  margin-bottom: 1rem;
-}
-
-.nav-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.75rem;
-}
-
-.nav-button {
-  padding: 0.5rem 1rem;
-  background: linear-gradient(90deg, #e5e7eb, #ddd6fe);
-  color: #6b46c1;
-  border: none;
-  border-radius: 1.5rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.nav-button:hover {
-  background: linear-gradient(90deg, #d1d5db, #c4b5fd);
-  transform: translateY(-1px);
-}
-
-.nav-button:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.3);
 }
 
 /* FAQ Section */
@@ -230,24 +89,6 @@
 
 .faq-icon {
   flex-shrink: 0;
-}
-
-.icon-plus {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  background: linear-gradient(135deg, #8b5cf6, #3b82f6);
-  color: white;
-  font-weight: bold;
-  font-size: 1.25rem;
-  border-radius: 50%;
-  transition: transform 0.3s ease;
-}
-
-.faq-item.expanded .icon-plus {
-  transform: rotate(45deg);
 }
 
 .icon-arrow {
@@ -364,16 +205,8 @@
   box-shadow: 0 10px 22px rgba(0,0,0,0.18);
 }
 
-.resource-icon-purple {
-  background: linear-gradient(135deg, #8b5cf6, #3b82f6);
-}
-
 .resource-icon-pink {
   background: linear-gradient(135deg, #ec4899, #8b5cf6);
-}
-
-.resource-icon-blue {
-  background: linear-gradient(135deg, #3b82f6, #06b6d4);
 }
 
 .icon-svg {
@@ -417,142 +250,11 @@
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.3);
 }
 
-/* CTA Section */
-.cta-section {
-  position: relative;
-  padding: 5rem 2rem;
-  background: linear-gradient(135deg, #0c4a6e 0%, #0369a1 50%, #22c55e 100%);
-  overflow: hidden;
-  text-align: center;
-  color: white;
-}
-
-.cta-bg-effects {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-}
-
-.cta-bg-effect {
-  position: absolute;
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.18), rgba(34, 197, 94, 0.14));
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-}
-
-.cta-content {
-  position: relative;
-  z-index: 10;
-  max-width: 50rem;
-  margin: 0 auto;
-}
-
-.cta-title {
-  font-size: 2.5rem;
-  font-weight: bold;
-  margin-bottom: 1.5rem;
-}
-
-.cta-subtitle {
-  font-size: 1.25rem;
-  margin-bottom: 2rem;
-  line-height: 1.6;
-  color: #e5e7eb;
-}
-
-.cta-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  justify-content: center;
-}
-
-.cta-button {
-  padding: 1rem 2rem;
-  border: none;
-  border-radius: 0.75rem;
-  font-weight: 600;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.cta-button-primary {
-  background: linear-gradient(135deg, #0ea5e9, #0284c7, #22c55e);
-  color: white;
-  box-shadow: 0 4px 15px rgba(14, 165, 233, 0.35);
-}
-
-.cta-button-primary:hover {
-  box-shadow: 0 8px 25px rgba(14, 165, 233, 0.55);
-  transform: translateY(-2px) scale(1.02);
-}
-
-.cta-button-secondary {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-}
-
-.cta-button-secondary:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-.cta-button:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5);
-}
-
 /* Responsive Design */
 @media (max-width: 768px) {
-  .hero-title {
-    font-size: 2.5rem;
-  }
-  
-  .hero-subtitle {
-    font-size: 1.125rem;
-  }
-  
-  .nav-buttons {
-    flex-direction: column;
-    align-items: center;
-  }
-  
   .question-text {
     font-size: 1rem;
   }
-  
-  .cta-title {
-    font-size: 2rem;
-  }
-  
-  .cta-buttons {
-    flex-direction: column;
-    align-items: center;
-  }
-  
-  .cta-button {
-    width: 100%;
-    max-width: 300px;
-  }
-}
-
-/* Additional utility classes */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }
 
 /* Focus improvements for accessibility */
@@ -573,23 +275,10 @@ html {
 
 /* Print styles */
 @media print {
-  .hero-section,
-  .nav-section,
-  .resources-section,
-  .cta-section {
-    background: white !important;
-    color: black !important;
-  }
-  
-  .bg-effect,
-  .cta-bg-effect {
-    display: none;
-  }
-  
   .faq-button {
     border: 1px solid #ccc;
   }
-  
+
   .faq-answer {
     display: block !important;
   }
