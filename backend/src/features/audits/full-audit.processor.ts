@@ -633,7 +633,7 @@ async function generatePlatformReports(
     for (const report of reports) {
       try {
         await new Promise<void>((resolve) => setImmediate(resolve));
-        if (report.isLiteVersion) {
+        if (report.isLiteVersion && planId !== 'pro' && planId !== 'onetime') {
           const litePdfResult = await generateLiteAccessibilityReport(report.jsonReportPath, finalReportFolder);
           const expectedPdfPath = path.join(finalReportFolder, buildFullAuditPdfFileName(report.url, device));
 
@@ -972,8 +972,12 @@ export async function runFullAuditProcess(payload: QueueJobInput): Promise<Queue
       totalPageLimit: env.fullAuditTotalPageLimit,
       priorityPageLimit: env.fullAuditPriorityPageLimit,
     });
+    const fullModePageLimit = effectivePlanId === 'pro' || effectivePlanId === 'onetime'
+      ? targetPages.length
+      : env.fullAuditFullModePageLimit;
+
     const plannedTargetPages = planFullAuditTargetPages(targetPages, {
-      fullModePageLimit: env.fullAuditFullModePageLimit,
+      fullModePageLimit,
     });
     const devicesToAudit = resolveDevicesToAudit(effectivePlanId, job.selectedDevice);
     const reportsByPlatform: Partial<Record<FullAuditDevice, FullAuditReportEntry[]>> = {};

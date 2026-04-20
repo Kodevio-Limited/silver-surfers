@@ -4,7 +4,6 @@ import customConfig from "./scanner/custom-config.js";
 export type AuditRiskTier = "low" | "medium" | "high";
 export type AuditScoreStatus = "pass" | "needs-improvement" | "fail";
 export type AuditPrimaryDimensionKey = "visualClarity" | "cognitiveLoad" | "motorAccessibility" | "contentTrust";
-export type AuditDimensionKey = AuditPrimaryDimensionKey;
 export type AuditIssueSourceType = "wcag-aa" | "aging-heuristic" | "supporting-signal";
 export type AuditEvaluationDimensionKey =
     | "technicalAccessibility"
@@ -30,7 +29,7 @@ export interface AuditIssueSummary {
     sourceUrl?: string;
 }
 
-export interface AuditDimensionScore {
+export interface AuditPrimaryDimensionScore {
     key: AuditPrimaryDimensionKey;
     label: string;
     score: number;
@@ -63,7 +62,7 @@ export interface AuditScorecard {
     scoreStatus: AuditScoreStatus;
     pageCount: number;
     evaluatedAt: string;
-    dimensions: AuditDimensionScore[];
+    dimensions: AuditPrimaryDimensionScore[];
     evaluationDimensions: AuditEvaluationDimensionScore[];
     topIssues: AuditIssueSummary[];
     platforms: AuditPlatformScore[];
@@ -326,7 +325,7 @@ function getAuditMetadata(auditId: string): AuditIssueMetadata {
     return AUDIT_METADATA[auditId] || DEFAULT_AUDIT_METADATA;
 }
 
-function createEmptyPrimaryDimensionScore(key: AuditPrimaryDimensionKey): AuditDimensionScore {
+function createEmptyPrimaryDimensionScore(key: AuditPrimaryDimensionKey): AuditPrimaryDimensionScore {
     return {
         key,
         label: PRIMARY_DIMENSION_LABELS[key],
@@ -376,7 +375,7 @@ function dedupeIssues(issues: AuditIssueSummary[]): AuditIssueSummary[] {
 }
 
 function buildPrimaryDimensions(evaluationDimensions: AuditEvaluationDimensionScore[]): {
-    dimensions: AuditDimensionScore[];
+    dimensions: AuditPrimaryDimensionScore[];
     overallScore: number;
 } {
     const evaluationByKey = new Map<AuditEvaluationDimensionKey, AuditEvaluationDimensionScore>(

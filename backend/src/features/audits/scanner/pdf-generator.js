@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import PDFDocument from 'pdfkit';
 import { buildAuditScorecard } from '../audit-scorecard.ts';
 import { buildRemediationRoadmap } from '../analysis-details.ts';
+import customConfig from './custom-config.js';
 
 // Helper to get __dirname in ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -2247,7 +2248,7 @@ addOverallScoreDisplay(scoreData) {
         // Increased Weighted from 70 to 85 to prevent "Weighted" from wrapping
         const colWidths = [290, 70, 70, 85]; // Audit Component, Score, Weight, Weighted
         // Reserve space for footer at bottom (footer at pageHeight - 30, so reserve 50px)
-        const pageBottom = this.doc.page.height - 50;
+        let pageBottom = this.doc.page.height - 50;
         
         // Calculate header height dynamically based on text wrapping
         this.doc.font('BoldFont').fontSize(11);
