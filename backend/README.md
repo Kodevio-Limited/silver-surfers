@@ -301,5 +301,4 @@ That choice changes operational behavior, so check `src/config/env.ts` before de
 
 ### Database can be optional at startup
 
-If `MONGODB_URI` is missing, the app logs a warning and starts without a DB connection. That is convenient for local exploration but can make feature failures look confusing later.
-
+If `MONGO_URL` is missing, the app logs a warning and starts without a DB connection. That is convenient for local exploration but can make feature failures look confusing later.

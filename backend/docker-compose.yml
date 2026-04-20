@@ -1,6 +1,7 @@
 # SilverSurfers — local development + staging compose
 #
 # Services:
+#   mongo    — Primary database (port 27017)
 #   redis    — BullMQ job queue and cache broker
 #   api      — Express API server (port 8000)
 #   worker   — Background audit job processor (BullMQ consumer)
@@ -17,6 +18,29 @@
 #   docker compose automatically loads .env from the same directory.
 
 services:
+    # ──────────────────────────────────────────────
+    # MongoDB — primary database
+    # ──────────────────────────────────────────────
+    mongo:
+        image: mongo:7.0-jammy
+        container_name: ss-mongo
+        restart: unless-stopped
+        environment:
+            MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+            MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+            MONGO_INITDB_DATABASE: ${MONGO_URL}
+        ports:
+            - "27017:27017"
+        volumes:
+            - mongo_data:/data/db
+        networks:
+            - ssnet
+        healthcheck:
+            test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
     # ──────────────────────────────────────────────
     # Redis — BullMQ broker
     # ──────────────────────────────────────────────
@@ -47,6 +71,8 @@ services:
         container_name: ss-api
         restart: unless-stopped
         depends_on:
+            mongo:
+                condition: service_healthy
             redis:
                 condition: service_healthy
         env_file:
@@ -54,9 +80,9 @@ services:
         environment:
             NODE_ENV: production
             PORT: 8000
+            MONGO_URL: ${MONGO_URL}
             REDIS_URL: redis://redis:6379
             QUEUE_BACKEND: bullmq
-            # Scanner runs as a sidecar; worker calls it over the internal network
             SCANNER_SERVICE_URL: http://scanner:8001
         ports:
             - "8000:8000"
@@ -86,6 +112,8 @@ services:
         container_name: ss-worker
         restart: unless-stopped
         depends_on:
+            mongo:
+                condition: service_healthy
             redis:
                 condition: service_healthy
             scanner:
@@ -94,6 +122,7 @@ services:
             - .env
         environment:
             NODE_ENV: production
+            MONGO_URL: ${MONGO_URL}
             REDIS_URL: redis://redis:6379
             QUEUE_BACKEND: bullmq
             SCANNER_SERVICE_URL: http://scanner:8001
@@ -123,8 +152,6 @@ services:
             CHROME_PATH: /usr/bin/chromium
             CHROMIUM_PATH: /usr/bin/chromium
             PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
-        # Run Chromium with --no-sandbox inside Docker
-        # (sandbox requires kernel features not available in most container runtimes)
         security_opt:
             - seccomp:unconfined
         ports:
@@ -147,5 +174,7 @@ networks:
         driver: bridge
 
 volumes:
+    mongo_data:
+        driver: local
     redis_data:
         driver: local

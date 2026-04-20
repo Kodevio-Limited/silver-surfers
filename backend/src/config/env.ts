@@ -146,7 +146,7 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
         isDevelopment: nodeEnv === "development",
         port,
         scannerPort,
-        mongoUri: source.MONGODB_URI?.trim() || undefined,
+        mongoUri: source.MONGO_URL?.trim() || undefined,
         jwtSecret: source.JWT_SECRET?.trim() || "dev_secret_change_me",
         jwtExpiresIn: source.JWT_EXPIRES_IN?.trim() || "7d",
         frontendUrl: source.FRONTEND_URL?.trim() || "http://localhost:3000",
