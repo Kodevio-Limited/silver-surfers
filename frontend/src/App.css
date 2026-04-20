@@ -1,10 +1,5 @@
 /* Modern Design System - App.css */
 
-*:focus,
-*:focus-visible {
-    outline: none;
-}
-
 :root {
     /* Background Gradient */
     --bg-primary: linear-gradient(135deg, #0ea5e9 0%, #0284c7 25%, #0369a1 50%, #0284c7 75%, #0ea5e9 100%);
