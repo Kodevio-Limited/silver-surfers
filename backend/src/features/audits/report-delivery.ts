@@ -398,13 +398,13 @@ export function buildAuditReportEmailBody(options: {
             box-shadow: 0 4px 24px rgba(0,0,0,0.08);
         `,
         header: `
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            background-color: #16213e;
             padding: 40px 40px 32px;
             text-align: center;
         `,
         headerBadge: `
             display: inline-block;
-            background: rgba(255,255,255,0.12);
+            background-color: rgba(255,255,255,0.12);
             border: 1px solid rgba(255,255,255,0.2);
             border-radius: 20px;
             padding: 6px 16px;
@@ -472,7 +472,7 @@ export function buildAuditReportEmailBody(options: {
         `,
         downloadButton: `
             display: inline-block;
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            background-color: #3b82f6;
             color: #ffffff !important;
             text-decoration: none;
             font-size: 13px;
@@ -483,7 +483,7 @@ export function buildAuditReportEmailBody(options: {
             letter-spacing: 0.3px;
         `,
         expiryBanner: `
-            background: linear-gradient(135deg, #fffbeb, #fef3c7);
+            background-color: #fef3c7;
             border: 1px solid #fcd34d;
             border-radius: 10px;
             padding: 16px 20px;
@@ -499,7 +499,7 @@ export function buildAuditReportEmailBody(options: {
             margin: 0;
         `,
         archiveBanner: `
-            background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+            background-color: #dcfce7;
             border: 1px solid #86efac;
             border-radius: 10px;
             padding: 16px 20px;
@@ -512,7 +512,7 @@ export function buildAuditReportEmailBody(options: {
             margin: 0;
         `,
         errorBox: `
-            background: linear-gradient(135deg, #fef2f2, #fee2e2);
+            background-color: #fee2e2;
             border: 1px solid #fca5a5;
             border-radius: 10px;
             padding: 20px 24px;
