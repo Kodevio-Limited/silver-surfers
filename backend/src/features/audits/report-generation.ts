@@ -302,12 +302,7 @@ export async function generateAuditAiSummaryPdf(
       : [];
 
     const doc = new PDFDocument({
-      margins: {
-        top: 48,
-        bottom: 64,
-        left: 48,
-        right: 48,
-      },
+      margins: { top: 56, bottom: 64, left: 48, right: 48 },
       size: 'A4',
     });
 
@@ -317,110 +312,167 @@ export async function generateAuditAiSummaryPdf(
     doc.registerFont('RegularFont', 'Helvetica');
     doc.registerFont('BoldFont', 'Helvetica-Bold');
 
-    const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const pageMarginLeft = doc.page.margins.left;
+    const pageMarginRight = doc.page.margins.right;
+    const contentWidth = doc.page.width - pageMarginLeft - pageMarginRight;
+    const overallScore = Math.round(Number(options.scorecard?.overallScore || 0));
+    const riskTierRaw = String(options.scorecard?.riskTier || 'unknown').toLowerCase();
+    const scoreStatusRaw = String(options.scorecard?.scoreStatus || 'pending').replace(/-/g, ' ');
     const generatedAt = new Date(aiReport.generatedAt);
-    const metadataEntries = [
-      ['URL', options.url],
-      ['Status', String(aiReport?.status || 'generated')],
-      ['Generated At', Number.isNaN(generatedAt.getTime()) ? aiReport.generatedAt : generatedAt.toLocaleString()],
-    ];
-    const summaryHighlights = [
-      normalizedHeadline,
-      normalizedSummary.split(/(?<=[.!?])\s+/)[0] || normalizedSummary,
-      normalizedBusinessImpact.split(/(?<=[.!?])\s+/)[0] || normalizedBusinessImpact,
-      normalizedPrioritySummary.split(/(?<=[.!?])\s+/)[0] || normalizedPrioritySummary,
-    ]
-      .map((item) => String(item || '').trim())
-      .filter(Boolean)
-      .slice(0, 4);
+    const generatedAtLabel = Number.isNaN(generatedAt.getTime())
+      ? aiReport.generatedAt
+      : generatedAt.toLocaleString();
 
-    const renderSection = (heading: string, body: string): void => {
-      if (!body?.trim()) {
-        return;
-      }
+    const riskPalette = (() => {
+      if (overallScore >= 80) return { fill: '#DCFCE7', text: '#166534', accent: '#16A34A' };
+      if (overallScore >= 70) return { fill: '#FEF3C7', text: '#92400E', accent: '#F59E0B' };
+      return { fill: '#FEE2E2', text: '#991B1B', accent: '#DC2626' };
+    })();
 
-      doc.moveDown(0.8);
-      doc.font('BoldFont').fontSize(16).fillColor('#111827')
-        .text(heading, { width: contentWidth });
-      doc.moveDown(0.25);
-      doc.font('RegularFont').fontSize(11).fillColor('#374151')
-        .text(body, {
-          width: contentWidth,
-          lineGap: 4,
-        });
+    const sectionPalette = {
+      summary: '#3B82F6',
+      business: '#8B5CF6',
+      priority: '#F59E0B',
+      recommendations: '#10B981',
+      stakeholder: '#0EA5E9',
     };
 
-    const renderBulletSection = (heading: string, items: string[]): void => {
-      const normalizedItems = items
-        .map((item) => String(item || '').trim())
-        .filter(Boolean);
-
-      if (normalizedItems.length === 0) {
-        return;
-      }
-
-      doc.moveDown(0.8);
-      doc.font('BoldFont').fontSize(16).fillColor('#111827')
-        .text(heading, { width: contentWidth });
-      doc.moveDown(0.25);
-      doc.font('RegularFont').fontSize(11).fillColor('#374151');
-      normalizedItems.forEach((item) => {
-        doc.text(`• ${item}`, {
-          width: contentWidth,
-          indent: 8,
-          lineGap: 4,
-        });
-      });
+    const renderHero = (): void => {
+      const heroHeight = 110;
+      doc.save();
+      doc.rect(0, 0, doc.page.width, heroHeight).fill('#0F172A');
+      doc.fillColor('#FFFFFF').font('BoldFont').fontSize(22)
+        .text(options.title || 'AI Executive Summary', pageMarginLeft, 28, { width: contentWidth });
+      doc.font('RegularFont').fontSize(10).fillColor('#CBD5F5')
+        .text(options.url, pageMarginLeft, 60, { width: contentWidth, lineBreak: false, ellipsis: true });
+      doc.font('RegularFont').fontSize(9).fillColor('#94A3B8')
+        .text(`Generated ${generatedAtLabel}  •  Source: ${aiReport.provider}${aiReport.model ? ` (${aiReport.model})` : ''}`,
+          pageMarginLeft, 78, { width: contentWidth });
+      doc.restore();
+      doc.y = heroHeight + 18;
     };
 
-    const renderSnapshot = (): void => {
-      if (!options.scorecard) {
-        return;
-      }
+    const renderScoreCard = (): void => {
+      if (!options.scorecard) return;
+      const cardTop = doc.y;
+      const cardHeight = 96;
+      const scoreBoxWidth = 130;
 
-      const weakestDimension = [...normalizedDimensions]
-        .sort((left, right) => left.score - right.score)[0];
-      const topIssues = normalizedTopIssues.slice(0, 3);
+      doc.save();
+      doc.roundedRect(pageMarginLeft, cardTop, contentWidth, cardHeight, 8).fill('#F8FAFC');
+      doc.roundedRect(pageMarginLeft, cardTop, scoreBoxWidth, cardHeight, 8).fill(riskPalette.fill);
 
-      const snapshotItems = [
-        `Overall score: ${Math.round(Number(options.scorecard.overallScore || 0))}%`,
-        `Risk tier: ${String(options.scorecard.riskTier || 'unknown').toUpperCase()}`,
-        `Score status: ${String(options.scorecard.scoreStatus || 'pending').replace(/-/g, ' ')}`,
-        `Pages audited: ${Number(options.scorecard.pageCount || 0)}`,
-        ...(weakestDimension ? [`Lowest-performing category: ${weakestDimension.label} (${Math.round(weakestDimension.score)}%)`] : []),
-        ...(topIssues.length > 0 ? [`Top issue focus: ${topIssues.join(', ')}`] : []),
+      doc.fillColor(riskPalette.text).font('BoldFont').fontSize(36)
+        .text(`${overallScore}%`, pageMarginLeft, cardTop + 22, { width: scoreBoxWidth, align: 'center' });
+      doc.fillColor(riskPalette.text).font('BoldFont').fontSize(10)
+        .text(riskTierRaw.toUpperCase() + ' RISK', pageMarginLeft, cardTop + 64, { width: scoreBoxWidth, align: 'center' });
+
+      const detailX = pageMarginLeft + scoreBoxWidth + 18;
+      const detailWidth = contentWidth - scoreBoxWidth - 30;
+      const weakest = [...normalizedDimensions].sort((a, b) => a.score - b.score)[0];
+      const strongest = [...normalizedDimensions].sort((a, b) => b.score - a.score)[0];
+      const detailRows: Array<[string, string]> = [
+        ['Status', scoreStatusRaw.replace(/\b\w/g, (c) => c.toUpperCase())],
+        ['Pages audited', String(Number(options.scorecard.pageCount || 0))],
       ];
+      if (weakest) {
+        detailRows.push(['Weakest area', `${weakest.label} (${Math.round(weakest.score)}%)`]);
+      }
+      if (strongest) {
+        detailRows.push(['Strongest area', `${strongest.label} (${Math.round(strongest.score)}%)`]);
+      }
 
-      renderBulletSection('Report Snapshot', snapshotItems);
+      let rowY = cardTop + 14;
+      detailRows.forEach(([label, value]) => {
+        doc.font('RegularFont').fontSize(9).fillColor('#64748B')
+          .text(label.toUpperCase(), detailX, rowY, { width: 110, lineBreak: false });
+        doc.font('BoldFont').fontSize(10).fillColor('#0F172A')
+          .text(value, detailX + 110, rowY, { width: detailWidth - 110, lineBreak: false, ellipsis: true });
+        rowY += 16;
+      });
+      doc.restore();
+      doc.y = cardTop + cardHeight + 18;
     };
 
-    doc.font('BoldFont').fontSize(24).fillColor('#0F172A')
-      .text(options.title || 'AI Executive Summary', {
-        width: contentWidth,
-      });
+    const renderSectionCard = (
+      heading: string,
+      accentColor: string,
+      body: string | null,
+      bullets: string[] | null,
+    ): void => {
+      const hasBody = !!(body && body.trim());
+      const hasBullets = !!(bullets && bullets.length > 0);
+      if (!hasBody && !hasBullets) return;
 
-    doc.moveDown(0.3);
-    doc.font('BoldFont').fontSize(18).fillColor('#1D4ED8')
-      .text(normalizedHeadline || 'Accessibility Summary', {
-        width: contentWidth,
-      });
+      const innerLeft = pageMarginLeft;
+      const innerWidth = contentWidth;
+      const headingY = doc.y;
 
-    doc.moveDown(0.8);
-    doc.font('RegularFont').fontSize(10).fillColor('#4B5563');
-    metadataEntries.forEach(([label, value]) => {
-      doc.text(`${label}: ${value}`, {
-        width: contentWidth,
-        lineGap: 2,
-      });
-    });
+      doc.font('BoldFont').fontSize(14).fillColor(accentColor)
+        .text(heading, innerLeft, headingY, { width: innerWidth });
 
-    renderSnapshot();
-    renderBulletSection('Executive Highlights', summaryHighlights);
-    renderSection('Summary', normalizedSummary);
-    renderSection('Business Impact', normalizedBusinessImpact);
-    renderSection('Priority Summary', normalizedPrioritySummary);
-    renderBulletSection('Top Recommendations', normalizedRecommendations.map((recommendation, index) => `${index + 1}. ${recommendation}`));
-    renderSection('Stakeholder Note', normalizedStakeholderNote);
+      const underlineY = doc.y + 2;
+      doc.save();
+      doc.lineWidth(2).strokeColor(accentColor)
+        .moveTo(innerLeft, underlineY).lineTo(innerLeft + 36, underlineY).stroke();
+      doc.restore();
+      doc.y = underlineY + 8;
+
+      if (hasBody) {
+        doc.font('RegularFont').fontSize(11).fillColor('#334155')
+          .text(body!.trim(), innerLeft, doc.y, { width: innerWidth, lineGap: 4 });
+      }
+
+      if (hasBullets) {
+        if (hasBody) doc.moveDown(0.35);
+        doc.font('RegularFont').fontSize(11).fillColor('#334155');
+        bullets!.forEach((item) => {
+          const lineY = doc.y;
+          doc.save();
+          doc.fillColor(accentColor).circle(innerLeft + 5, lineY + 6, 2.5).fill();
+          doc.restore();
+          doc.fillColor('#334155').text(item, innerLeft + 16, lineY, { width: innerWidth - 16, lineGap: 3 });
+          doc.moveDown(0.2);
+        });
+      }
+
+      doc.moveDown(0.6);
+    };
+
+    const renderTopIssues = (): void => {
+      if (normalizedTopIssues.length === 0) return;
+      const issues = normalizedTopIssues.slice(0, 5);
+      doc.font('BoldFont').fontSize(11).fillColor('#0F172A')
+        .text('Highlighted issues from this scan:', pageMarginLeft, doc.y, { width: contentWidth });
+      doc.moveDown(0.25);
+      doc.font('RegularFont').fontSize(10).fillColor('#475569');
+      issues.forEach((issue, idx) => {
+        doc.text(`${idx + 1}. ${issue}`, pageMarginLeft + 6, doc.y, { width: contentWidth - 6, lineGap: 2 });
+      });
+      doc.moveDown(0.5);
+    };
+
+    renderHero();
+
+    if (normalizedHeadline) {
+      doc.font('BoldFont').fontSize(16).fillColor('#1D4ED8')
+        .text(normalizedHeadline, pageMarginLeft, doc.y, { width: contentWidth });
+      doc.moveDown(0.6);
+    }
+
+    renderScoreCard();
+    renderTopIssues();
+
+    renderSectionCard('Summary', sectionPalette.summary, normalizedSummary, null);
+    renderSectionCard('Business Impact', sectionPalette.business, normalizedBusinessImpact, null);
+    renderSectionCard('Priority Summary', sectionPalette.priority, normalizedPrioritySummary, null);
+    renderSectionCard(
+      'Top Recommendations',
+      sectionPalette.recommendations,
+      null,
+      normalizedRecommendations.map((rec, i) => `${i + 1}. ${rec}`),
+    );
+    renderSectionCard('Stakeholder Note', sectionPalette.stakeholder, normalizedStakeholderNote, null);
 
     doc.end();
     writeStream.on('finish', () => resolve(options.outputPath));

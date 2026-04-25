@@ -38,6 +38,21 @@ interface OpenAiAuditReportPayload {
   stakeholderNote?: string;
 }
 
+function describeSiteContext(options: GenerateAuditAiReportOptions): string {
+  const { scorecard } = options;
+  const weakest = [...(scorecard.dimensions || [])].sort((a, b) => a.score - b.score)[0];
+  const strongest = [...(scorecard.dimensions || [])].sort((a, b) => b.score - a.score)[0];
+  const issueTitles = (scorecard.topIssues || []).slice(0, 3).map((i) => i.title).filter(Boolean);
+
+  return [
+    `Site: ${options.url}`,
+    `Overall score: ${Math.round(Number(scorecard.overallScore || 0))}% (risk tier: ${String(scorecard.riskTier || 'unknown')})`,
+    weakest ? `Weakest area: ${weakest.label} at ${Math.round(weakest.score)}%` : '',
+    strongest ? `Strongest area: ${strongest.label} at ${Math.round(strongest.score)}%` : '',
+    issueTitles.length > 0 ? `Top issues: ${issueTitles.join('; ')}` : '',
+  ].filter(Boolean).join('. ');
+}
+
 function toPercent(value: number | null | undefined): string {
   const normalized = Number(value);
   return Number.isFinite(normalized) ? `${Math.round(normalized)}%` : 'N/A';
@@ -174,20 +189,20 @@ function buildPromptPayload(options: GenerateAuditAiReportOptions): string {
 }
 
 function extractResponseText(payload: any): string {
-  if (typeof payload?.output_text === 'string' && payload.output_text.trim()) {
-    return payload.output_text;
-  }
-
-  const outputItems = Array.isArray(payload?.output) ? payload.output : [];
-  for (const item of outputItems) {
-    const contentItems = Array.isArray(item?.content) ? item.content : [];
-    for (const content of contentItems) {
-      if (typeof content?.text === 'string' && content.text.trim()) {
-        return content.text;
+  const choices = Array.isArray(payload?.choices) ? payload.choices : [];
+  for (const choice of choices) {
+    const content = choice?.message?.content;
+    if (typeof content === 'string' && content.trim()) {
+      return content;
+    }
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (typeof part?.text === 'string' && part.text.trim()) {
+          return part.text;
+        }
       }
     }
   }
-
   return '';
 }
 
@@ -236,7 +251,32 @@ async function requestOpenAiAuditReport(options: GenerateAuditAiReportOptions, f
   const timeout = setTimeout(() => controller.abort(), env.openAiTimeoutMs);
 
   try {
-    const response = await fetch(`${env.openAiBaseUrl.replace(/\/$/, '')}/responses`, {
+    const systemPrompt = [
+      'You are a senior accessibility analyst writing executive-level audit reports for the SilverSurfers platform, which evaluates websites for older-adult usability (50+ users).',
+      'Write for a business stakeholder, not a developer. Tone: confident, specific, plainspoken.',
+      'Ground every section in the actual scan data the user provides — reference the site URL, score, weakest dimensions, and named top issues. Do NOT use generic boilerplate.',
+      'Do NOT claim certification, guaranteed compliance, or legal conformance.',
+      '',
+      'Return ONLY a single valid JSON object with EXACTLY these keys (no extras, no comments):',
+      '  - "headline": one bold, specific sentence (max 14 words) capturing the overall state of THIS site.',
+      '  - "summary": 3-4 full sentences. Reference the scored % and the strongest/weakest dimensions by name. Describe the experience an older adult would have on this site.',
+      '  - "businessImpact": 3-4 full sentences. Connect the issues to concrete business outcomes — trust, task completion, conversion, brand perception, support load. Be specific to this site.',
+      '  - "prioritySummary": 3-4 full sentences explaining HOW to sequence remediation (quick wins first, then medium, then heavy). Reference the roadmap balance.',
+      '  - "topRecommendations": array of 4 to 6 strings. Each item is ONE complete actionable sentence (12-25 words) starting with a verb. Tie each recommendation to a real issue from the scan.',
+      '  - "stakeholderNote": 2-3 sentences for sharing with non-technical stakeholders, including a clear next step.',
+    ].join('\n');
+
+    const userPrompt = [
+      'Generate the executive AI report for this audit.',
+      '',
+      'Site context (use this directly in the writing):',
+      describeSiteContext(options),
+      '',
+      'Full scan data (JSON):',
+      buildPromptPayload(options),
+    ].join('\n');
+
+    const response = await fetch(`${env.openAiBaseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -244,35 +284,14 @@ async function requestOpenAiAuditReport(options: GenerateAuditAiReportOptions, f
       },
       body: JSON.stringify({
         model: env.openAiModel,
-        input: [
-          {
-            role: 'system',
-            content: [
-              {
-                type: 'input_text',
-                text: [
-                  'You create concise, business-friendly accessibility audit summaries for the SilverSurfers platform.',
-                  'Write for a business stakeholder, not a developer.',
-                  'Focus on older-adult usability, trust, task completion, and prioritization.',
-                  'Do not claim certification, guaranteed compliance, or legal outcomes.',
-                  'Return only valid JSON with these keys: headline, summary, businessImpact, prioritySummary, topRecommendations, stakeholderNote.',
-                  'topRecommendations must be an array of 3 to 5 one-sentence recommendations.',
-                ].join(' '),
-              },
-            ],
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'input_text',
-                text: buildPromptPayload(options),
-              },
-            ],
-          },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
         ],
-        temperature: 0.3,
-        max_output_tokens: 900,
+        temperature: 0.4,
+        max_tokens: 4000,
+        response_format: { type: 'json_object' },
+        reasoning_effort: 'low',
       }),
       signal: controller.signal,
     });
@@ -284,7 +303,18 @@ async function requestOpenAiAuditReport(options: GenerateAuditAiReportOptions, f
 
     const payload = await response.json();
     const outputText = extractResponseText(payload);
-    const parsed = JSON.parse(extractJsonObject(outputText)) as OpenAiAuditReportPayload;
+    const jsonText = extractJsonObject(outputText);
+    const finishReason = payload?.choices?.[0]?.finish_reason;
+
+    let parsed: OpenAiAuditReportPayload;
+    try {
+      parsed = JSON.parse(jsonText) as OpenAiAuditReportPayload;
+    } catch (parseError) {
+      throw new Error(
+        `Failed to parse model JSON (finish_reason=${finishReason}): ${parseError instanceof Error ? parseError.message : String(parseError)}. Preview: ${jsonText.slice(0, 400)}`,
+      );
+    }
+
     return normalizeOpenAiReport(parsed, fallback);
   } finally {
     clearTimeout(timeout);
