@@ -66,8 +66,8 @@ coverage/
 
 # Documentation
 *.md
+!Milestone_1_deliverable.md
 !PROJECT_SCOPE_STATUS.md
-!DEVELOPER_TASK_CHECKLIST.md
 !WORKING_REQUIREMENTS_LETTER.md
 !backend/README.md
 !frontend/README.md
